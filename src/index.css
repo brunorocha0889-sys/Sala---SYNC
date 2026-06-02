@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+/* Scoped dark theme system overrides for SALA-SYNC */
+.dark {
+  /* Core base theme palette */
+  --bg-main: #020617; /* slate-950 */
+  --bg-card: #0f172a; /* slate-900 */
+  --bg-hover: #1e293b; /* slate-800 */
+  --border-color: #1e293b; /* slate-800 */
+  --text-main: #f8fafc; /* slate-50 */
+  --text-muted: #94a3b8; /* slate-400 */
+}
+
+/* Force dark root/body backgrounds and base text colors dynamically */
+.dark,
+.dark body,
+.dark #root,
+.dark .min-h-screen {
+  background-color: var(--bg-main) !important;
+  color: var(--text-main) !important;
+}
+
+/* Transform light white cards to slate dark elements with nice contrast */
+.dark .bg-white {
+  background-color: var(--bg-card) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+/* Sub-page/nested light components backgrounds conversion */
+.dark .bg-slate-100,
+.dark .bg-slate-50,
+.dark .bg-slate-55,
+.dark .bg-slate-50\/40,
+.dark .bg-slate-50\/50,
+.dark .bg-slate-50\/80 {
+  background-color: rgba(30, 41, 59, 0.45) !important;
+  border-color: rgba(51, 65, 85, 0.5) !important;
+}
+
+/* Contrast enhancement for explicit background-slate-50 */
+.dark .bg-slate-50 {
+  background-color: #1e293b !important;
+}
+
+/* Force dark input forms, textareas, and select components */
+.dark select,
+.dark input,
+.dark textarea {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+.dark select option {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+}
+
+/* Title and contrast text overrides to prevent white-on-white issues */
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-705,
+.dark .text-slate-700,
+.dark .text-slate-600 {
+  color: #f1f5f9 !important;
+}
+
+.dark .text-slate-500,
+.dark .text-slate-450,
+.dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+/* Border overrides */
+.dark .border-slate-200,
+.dark .border-slate-150,
+.dark .border-slate-100,
+.dark .border,
+.dark .border-t,
+.dark .border-b,
+.dark .border-l,
+.dark .border-r,
+.dark .border-slate-200\/60,
+.dark .border-slate-200\/80 {
+  border-color: #1e293b !important;
+}
+
+.dark .divide-slate-200 > * + *,
+.dark .divide-slate-100 > * + * {
+  border-color: #1e293b !important;
+}
+
+/* Dynamic hover states background */
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover,
+.dark .hover\:bg-slate-55:hover {
+  background-color: #1e293b !important;
+}
+
+/* Indicator and Highlight Alerts Dark Optimization */
+.dark .bg-emerald-50\/50, .dark .bg-emerald-50 {
+  background-color: rgba(6, 78, 59, 0.25) !important;
+  border-color: rgba(5, 150, 105, 0.4) !important;
+}
+.dark .text-emerald-700 {
+  color: #34d399 !important;
+}
+
+.dark .bg-amber-100\/80, .dark .bg-amber-100, .dark .bg-amber-50 {
+  background-color: rgba(120, 53, 4, 0.25) !important;
+  border-color: rgba(217, 119, 6, 0.4) !important;
+}
+.dark .text-amber-900, .dark .text-amber-800 {
+  color: #f59e0b !important;
+}
+
+.dark .bg-rose-50 {
+  background-color: rgba(159, 18, 57, 0.2) !important;
+  border-color: rgba(225, 29, 72, 0.4) !important;
+}
+.dark .text-rose-800, .dark .text-rose-600 {
+  color: #fb7185 !important;
+}
+
+.dark .bg-indigo-50 {
+  background-color: rgba(49, 46, 129, 0.35) !important;
+  border-color: rgba(79, 70, 229, 0.4) !important;
+}
+.dark .text-indigo-650, 
+.dark .text-indigo-850, 
+.dark .text-indigo-700, 
+.dark .text-indigo-600 {
+  color: #c7d2fe !important;
+}
+
+/* Calendar component active days and list styles */
+.dark .text-slate-300 {
+  color: #64748b !important;
+}
+.dark .bg-slate-100\/90 {
+  background-color: rgba(15, 23, 42, 0.7) !important;
+}
+
+.dark select[disabled],
+.dark input[disabled],
+.dark button[disabled] {
+  opacity: 0.5 !important;
+  background-color: rgba(30, 41, 59, 0.3) !important;
+  cursor: not-allowed !important;
+}

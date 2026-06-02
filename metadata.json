@@ -1,0 +1,6 @@
+{
+  "name": "Agendamento de Salas",
+  "description": "Aplicativo para agendamento e gerenciamento de salas de reunião com calendário, filtros e controle de status.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
