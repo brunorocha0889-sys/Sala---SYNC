@@ -53,6 +53,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       
       {/* Brand logo at the top */}
       <div className="mb-6 text-center animate-fade-in animate-duration-300">
+        <img 
+          src="/favicon.svg" 
+          alt="Sala Sync Logo" 
+          className="w-24 h-24 mx-auto mb-4 hover:scale-110 transition-transform duration-300 ease-out"
+          referrerPolicy="no-referrer"
+        />
         <div className="inline-flex items-center gap-2 bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-full mb-3 shadow-xs">
           <Sparkles className="w-4 h-4 text-indigo-600 animate-pulse" />
           <span className="text-[10px] font-black text-indigo-800 uppercase tracking-widest">
@@ -69,7 +75,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       <div className="bg-white border border-slate-200 w-full max-w-md rounded-3xl p-8 shadow-md">
         
         <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
-          <div className="bg-[#6D3292]/10 p-3 rounded-2xl text-[#6D3292]">
+          <div className="bg-[#5B5CEB]/10 p-3 rounded-2xl text-[#5B5CEB]">
             <LogIn className="w-6 h-6" />
           </div>
           <div>
@@ -101,7 +107,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               placeholder="Ex: admin@sala-sync.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#6D3292] font-semibold"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#5B5CEB] font-semibold"
               required
               disabled={isLoading}
             />
@@ -120,21 +126,19 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               placeholder="Insira sua senha..."
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#6D3292] font-semibold"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#5B5CEB] font-semibold"
               required
               disabled={isLoading}
             />
           </div>
 
-          <p className="text-[10px] text-amber-800 bg-amber-50 rounded-lg p-2.5 border border-amber-100 font-semibold leading-normal">
-            🔐 <strong>Acesso Administrativo:</strong> Utilize o e-mail <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-950 font-black">admin@sala-sync.com</code> com a senha de desenvolvimento <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-950 font-black">123456</code>.
-          </p>
+
 
           {/* Access Button Trigger */}
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-[#6D3292] hover:bg-[#5C2a7B] text-white font-black text-xs uppercase tracking-widest py-4 px-4 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-[#5B5CEB] hover:bg-[#4749D4] text-white font-black text-xs uppercase tracking-widest py-4 px-4 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? "Validando Credenciais..." : "Acessar Sistema"}
             <ChevronRight className="w-4 h-4" />
@@ -146,7 +150,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
       <div className="mt-6 text-center text-slate-400 text-[10px] uppercase font-black tracking-widest max-w-xs leading-relaxed">
         <p>Apenas colaboradores registrados possuem permissão para agendamentos na Unidade.</p>
-        <p className="text-[#6D3292] mt-2 hover:underline cursor-pointer font-bold">Desenvolvido por Bruno Rocha - V1.4</p>
+        <p className="text-[#5B5CEB] mt-2 hover:underline cursor-pointer font-bold">Desenvolvido por Bruno Rocha - V1.4</p>
       </div>
 
     </div>

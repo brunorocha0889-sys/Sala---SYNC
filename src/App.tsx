@@ -597,16 +597,24 @@ export default function App() {
         
         {/* Header Section */}
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end pb-2 gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-3xl font-black text-slate-900 tracking-tight">SALA-SYNC</h1>
-              <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full uppercase tracking-widest">
-                v1.4.0
-              </span>
+          <div className="flex items-center gap-3">
+            <img 
+              src="/favicon.svg" 
+              alt="Sala Sync Logo" 
+              className="w-12 h-12 hover:rotate-12 transition-transform duration-300 ease-out pointer-events-auto"
+              referrerPolicy="no-referrer"
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-3xl font-black text-slate-900 tracking-tight">SALA-SYNC</h1>
+                <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full uppercase tracking-widest">
+                  v1.4.0
+                </span>
+              </div>
+              <p className="text-slate-500 font-semibold text-sm">
+                Gerenciamento de Espaços • {formatHeaderDate()}
+              </p>
             </div>
-            <p className="text-slate-500 font-semibold text-sm">
-              Gerenciamento de Espaços • {formatHeaderDate()}
-            </p>
           </div>
 
           <div className="flex items-center gap-3 bg-white px-4 py-2.5 border border-slate-200/80 rounded-2xl shadow-xs">

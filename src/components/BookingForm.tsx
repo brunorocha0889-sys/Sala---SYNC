@@ -490,7 +490,7 @@ export default function BookingForm({
                                 +
                               </button>
                             </div>
-                            <span className="text-[9px] text-[#6D3292] font-mono font-bold bg-purple-50 px-1 rounded">
+                            <span className="text-[9px] text-[#5B5CEB] font-mono font-bold bg-indigo-50 px-1 rounded">
                               Max: {eq.quantidade}
                             </span>
                           </div>
@@ -583,7 +583,7 @@ export default function BookingForm({
             {canEdit && (
               <button
                 type="submit"
-                className="bg-[#6D3292] hover:bg-[#5C2a7B] text-white px-5 py-2 rounded-lg text-sm font-semibold shadow-sm hover:shadow transition-all flex items-center gap-1.5 cursor-pointer"
+                className="bg-[#5B5CEB] hover:bg-[#4749D4] text-white px-5 py-2 rounded-lg text-sm font-semibold shadow-sm hover:shadow transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 <Check className="w-4 h-4" />
                 {id ? "Atualizar Reserva" : "Confirmar Agendamento"}

@@ -8,3 +8,14 @@ coverage/
 !.env.example
 
 /src/generated/prisma
+
+# SQLite database local files
+dev.db
+dev.db-shm
+dev.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Prisma migrations folder
+prisma/migrations/

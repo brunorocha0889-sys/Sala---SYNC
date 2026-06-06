@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Top Arc (Blue) -->
+  <path d="M 86,242 A 171,171 0 0,1 422,242" fill="none" stroke="#5B5CEB" stroke-width="20" stroke-linecap="round" />
+  <!-- Top Arrowhead -->
+  <path d="M 380,230 L 450,230 L 413,274 Z" fill="#5B5CEB" />
+
+  <!-- Bottom Arc (Dark Navy) -->
+  <path d="M 426,270 A 171,171 0 0,1 90,270" fill="none" stroke="#0F172A" stroke-width="20" stroke-linecap="round" />
+  <!-- Bottom Arrowhead -->
+  <path d="M 62,282 L 132,282 L 95,238 Z" fill="#0F172A" />
+
+  <!-- Central Door Frame -->
+  <path d="M 140,350 L 195,350 L 195,150 L 320,150 L 320,350 L 375,350" fill="none" stroke="#0F172A" stroke-width="18" stroke-linecap="square" stroke-linejoin="miter" />
+
+  <!-- Open Door Panel -->
+  <polygon points="240,175 295,200 295,365 240,395" fill="#0F172A" />
+
+  <!-- Door Knob -->
+  <circle cx="254" cy="282" r="8" fill="#FFFFFF" />
+</svg>

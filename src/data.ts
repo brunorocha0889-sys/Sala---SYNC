@@ -37,8 +37,8 @@ export const SALAS_PREDEFINIDAS: RoomConfig[] = [
   {
     id: "auditorio",
     nome: "Auditório Principal",
-    corBg: "bg-purple-50 text-purple-800 border-purple-200",
-    corTexto: "#6b21a8",
+    corBg: "bg-indigo-50 text-indigo-800 border-indigo-200",
+    corTexto: "#5B5CEB",
     capacidade: 80,
   },
 ];

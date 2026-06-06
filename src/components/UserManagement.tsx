@@ -712,7 +712,7 @@ export default function UserManagement({
                   </div>
 
                   <div className="border-t border-slate-100 pt-3 mt-3 flex items-center justify-between">
-                    <span className="text-[9px] font-black text-[#6D3292] uppercase tracking-wider bg-purple-50 px-2 py-0.5 rounded-full">
+                    <span className="text-[9px] font-black text-[#5B5CEB] uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded-full">
                       {count} {count === 1 ? 'reserva ativa' : 'reservas ativas'}
                     </span>
 

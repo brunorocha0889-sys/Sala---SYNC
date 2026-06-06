@@ -112,7 +112,7 @@ export default function BookingTable({
           !editable ? "opacity-90 cursor-not-allowed bg-slate-100 text-slate-500 border border-slate-200" : "cursor-pointer"
         } ${
           b.situacao === "Finalizado"
-            ? "bg-[#6D3292] text-white"
+            ? "bg-[#5B5CEB] text-white"
             : b.situacao === "Confirmado"
             ? "bg-emerald-600 text-white"
             : "bg-rose-600 text-white"
@@ -337,19 +337,19 @@ export default function BookingTable({
         <table className="w-full text-left border-collapse min-w-[1000px]">
           {/* Custom purple background theme for header matching the user's spreadsheet */}
           <thead>
-            <tr className="bg-[#4D245A] text-white text-xs font-bold tracking-wider select-none border-b border-purple-950">
+            <tr className="bg-[#0F172A] text-white text-xs font-bold tracking-wider select-none border-b border-slate-950">
               <th className="py-3.5 px-4 w-12 text-center">
                 <input
                   type="checkbox"
                   checked={filteredBookings.filter(isEditable).length > 0 && selectedIds.length === filteredBookings.filter(isEditable).length}
                   onChange={(e) => handleSelectAll(e.target.checked)}
-                  className="rounded border-purple-400 text-violet-700 focus:ring-violet-500 w-4 h-4 bg-white/10"
+                  className="rounded border-slate-600 text-indigo-600 focus:ring-indigo-500 w-4 h-4 bg-white/10"
                 />
               </th>
               
               {/* Data header */}
               <th 
-                className="py-3.5 px-4 cursor-pointer hover:bg-[#5C326B] transition-colors"
+                className="py-3.5 px-4 cursor-pointer hover:bg-[#1E293B] transition-colors"
                 onClick={() => handleSort("data")}
               >
                 <div className="flex items-center gap-1">
@@ -360,7 +360,7 @@ export default function BookingTable({
 
               {/* Hora Inicial */}
               <th 
-                className="py-3.5 px-3 cursor-pointer hover:bg-[#5C326B] transition-colors"
+                className="py-3.5 px-3 cursor-pointer hover:bg-[#1E293B] transition-colors"
                 onClick={() => handleSort("horaInicial")}
               >
                 <div className="flex items-center gap-1">
@@ -374,7 +374,7 @@ export default function BookingTable({
 
               {/* Sala */}
               <th 
-                className="py-3.5 px-3 cursor-pointer hover:bg-[#5C326B] transition-colors"
+                className="py-3.5 px-3 cursor-pointer hover:bg-[#1E293B] transition-colors"
                 onClick={() => handleSort("sala")}
               >
                 <div className="flex items-center gap-1">
@@ -391,7 +391,7 @@ export default function BookingTable({
 
               {/* Responsável */}
               <th 
-                className="py-3.5 px-4 cursor-pointer hover:bg-[#5C326B] transition-colors"
+                className="py-3.5 px-4 cursor-pointer hover:bg-[#1E293B] transition-colors"
                 onClick={() => handleSort("responsavel")}
               >
                 <div className="flex items-center gap-1 px-1">
@@ -408,7 +408,7 @@ export default function BookingTable({
 
               {/* Situação */}
               <th 
-                className="py-3.5 px-4 cursor-pointer hover:bg-[#5C326B] transition-colors text-center"
+                className="py-3.5 px-4 cursor-pointer hover:bg-[#1E293B] transition-colors text-center"
                 onClick={() => handleSort("situacao")}
               >
                 <div className="flex items-center justify-center gap-1">
@@ -474,7 +474,7 @@ export default function BookingTable({
                     {/* Pessoas */}
                     <td className="py-3 px-3">
                       {b.pessoas ? (
-                        <span className="bg-purple-50 text-purple-700 border border-purple-100 text-xs font-semibold px-2 py-0.5 rounded-sm">
+                        <span className="bg-indigo-50 text-[#5B5CEB] border border-indigo-100 text-xs font-semibold px-2 py-0.5 rounded-sm">
                           {b.pessoas}
                         </span>
                       ) : (
