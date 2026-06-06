@@ -1,9 +1,14 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import path from "path";
 import { PrismaClient } from "@prisma/client";
 import { createServer as createViteServer } from "vite";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  datasourceUrl: process.env.DATABASE_URL || "file:./dev.db"
+} as any);
 const app = express();
 const PORT = 3000;
 
