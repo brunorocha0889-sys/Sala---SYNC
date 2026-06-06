@@ -11,6 +11,7 @@ interface BookingFormProps {
   users: SystemUser[];
   onSave: (booking: Booking) => void;
   onClose: () => void;
+  addToast: (type: "success" | "error" | "warning" | "info", title: string, message: string) => void;
 }
 
 function timeToMinutes(t: string): number {
@@ -37,7 +38,7 @@ function calculateDuration(start: string, end: string): string {
   return `${hours}:${minutes.toString().padStart(2, "0")}`;
 }
 
-export default function BookingForm({ booking, allBookings, currentUser, users, onSave, onClose }: BookingFormProps) {
+export default function BookingForm({ booking, allBookings, currentUser, users, onSave, onClose, addToast }: BookingFormProps) {
   const [id, setId] = useState("");
   const [data, setData] = useState("");
   const [horaInicial, setHoraInicial] = useState("09:00");
@@ -138,8 +139,19 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
       return startMin < otherEnd && endMin > otherStart;
     });
 
-    setConflict(overlapping || null);
-  }, [id, sala, data, horaInicial, horaFinal, situacao, allBookings]);
+    if (overlapping) {
+      if (!conflict || conflict.id !== overlapping.id) {
+        addToast(
+          "warning",
+          "⚠️ Detecção de Conflito!",
+          `${sala} já está reservada por ${overlapping.responsavel} das ${overlapping.horaInicial} às ${overlapping.horaFinal} na data selecionada!`
+        );
+      }
+      setConflict(overlapping);
+    } else {
+      setConflict(null);
+    }
+  }, [id, sala, data, horaInicial, horaFinal, situacao, allBookings, addToast, conflict]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,7 +160,11 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
       return;
     }
     if (conflict && situacao !== "Cancelado") {
-      alert(`⚠️ Conflito de Horário! A sala "${sala}" já está agendada neste mesmo período por "${conflict.responsavel}" (${conflict.horaInicial} às ${conflict.horaFinal}). Altere a sala, a data ou os horários do seu agendamento.`);
+      addToast(
+        "error",
+        "Erro de Conflito de Horário",
+        `Não é possível salvar porque a sala "${sala}" já está reservada por "${conflict.responsavel}" das ${conflict.horaInicial} às ${conflict.horaFinal}.`
+      );
       return;
     }
     if (!responsavel.trim()) {

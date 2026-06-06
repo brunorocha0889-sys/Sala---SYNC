@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Booking, SystemUser } from "./types";
+import { Booking, SystemUser, ToastMessage } from "./types";
 import { INITIAL_BOOKINGS, USUARIOS_PREDEFINIDOS } from "./data";
 import BookingStats from "./components/BookingStats";
 import BookingTable from "./components/BookingTable";
@@ -8,6 +8,7 @@ import BookingForm from "./components/BookingForm";
 import UserManagement from "./components/UserManagement";
 import LoginScreen from "./components/LoginScreen";
 import WelcomeTour from "./components/WelcomeTour";
+import ToastContainer from "./components/Toast";
 import { AnimatePresence } from "motion/react";
 import { 
   Calendar as CalendarIcon, 
@@ -81,6 +82,23 @@ export default function App() {
   // Edit & Add states
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+
+  // Toast notifications state
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const addToast = (
+    type: "success" | "error" | "warning" | "info", 
+    title: string, 
+    message: string, 
+    duration?: number
+  ) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    setToasts((prev) => [...prev, { id, type, title, message, duration }]);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
 
   // Check if tour was already shown to the user or open manually
   const [isTourOpen, setIsTourOpen] = useState(() => {
@@ -260,7 +278,11 @@ export default function App() {
         const isOwner = targetB.usuarioId === currentUser.id || targetB.responsavel.toLowerCase().trim() === currentUser.nome.toLowerCase().trim();
         const isAdmin = currentUser.role === "Administrador";
         if (!isOwner && !isAdmin) {
-          alert("⚠️ Permissão negada! Apenas quem fez o agendamento ou o administrador pode cancelar esta reserva.");
+          addToast(
+            "error",
+            "Permissão Negada",
+            "Apenas quem fez o agendamento ou o administrador pode cancelar esta reserva."
+          );
           return;
         }
       }
@@ -273,8 +295,18 @@ export default function App() {
 
     if (exists) {
       updated = bookings.map((b) => (b.id === booking.id ? finalBooking : b));
+      addToast(
+        "success",
+        "Reserva Atualizada!",
+        `O agendamento para a sala "${booking.sala}" foi atualizado com sucesso.`
+      );
     } else {
       updated = [finalBooking, ...bookings];
+      addToast(
+        "success",
+        "Reserva Criada!",
+        `Seu agendamento para a sala "${booking.sala}" foi registrado para o dia ${booking.data.split("-").reverse().join("/")}!`
+      );
     }
     
     saveBookings(updated);
@@ -291,7 +323,11 @@ export default function App() {
 
       // Permission check for cancel action
       if (status === "Cancelado" && !isOwner && !isAdmin) {
-        alert("⚠️ Permissão negada! Apenas quem fez o agendamento ou o administrador pode cancelar esta reserva.");
+        addToast(
+          "error",
+          "Permissão Negada",
+          "Apenas quem fez o agendamento ou o administrador pode cancelar esta reserva."
+        );
         return;
       }
 
@@ -320,14 +356,24 @@ export default function App() {
         });
 
         if (overlapping) {
-          alert(`⚠️ Não foi possível alterar o status para "${status}" devido a um conflito de horários! A sala "${targetB.sala}" já possui um agendamento ativo por "${overlapping.responsavel}" das ${overlapping.horaInicial} às ${overlapping.horaFinal} nesta mesma data.`);
+          addToast(
+            "warning",
+            "Conflito de Horários!",
+            `Não foi possível alterar para "${status}". Sala "${targetB.sala}" já possui agendamento por "${overlapping.responsavel}" das ${overlapping.horaInicial} às ${overlapping.horaFinal}.`
+          );
           return;
         }
       }
-    }
 
-    const updated = bookings.map((b) => (b.id === id ? { ...b, situacao: status } : b));
-    saveBookings(updated);
+      const updated = bookings.map((b) => (b.id === id ? { ...b, situacao: status } : b));
+      saveBookings(updated);
+
+      addToast(
+        "success",
+        "Status Atualizado",
+        `A reserva de ${targetB.responsavel} foi alterada para "${status}" com sucesso.`
+      );
+    }
   };
 
   // Single entity delete
@@ -545,13 +591,13 @@ export default function App() {
           {/* Card 1: Main statistics trigger */}
           <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs flex flex-col justify-between min-h-[140px]">
             <div>
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total de Reservas</p>
-              <h3 className="text-4xl font-extrabold text-slate-800 mt-2">{bookings.length}</h3>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total de Reservas Ativas</p>
+              <h3 className="text-4xl font-extrabold text-slate-800 mt-2">
+                {bookings.filter(b => b.situacao === "Confirmado").length}
+              </h3>
             </div>
             <div className="flex justify-between items-center text-[10px] text-slate-400 uppercase font-black tracking-wider pt-2 border-t border-slate-50">
-              <span>{bookings.filter(b => b.situacao === "Confirmado").length} Ativas</span>
-              <span>•</span>
-              <span>{bookings.filter(b => b.situacao === "Finalizado").length} Concluídas</span>
+              <span className="text-indigo-600 dark:text-indigo-400 font-bold">Filtro: Confirmadas</span>
             </div>
           </div>
 
@@ -758,8 +804,12 @@ export default function App() {
             setIsFormOpen(false);
             setEditingBooking(null);
           }}
+          addToast={addToast}
         />
       )}
+
+      {/* Toast notifications container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
 
       {/* Welcome Tour Guided walkthrough modal */}
       <AnimatePresence>
