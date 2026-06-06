@@ -1,22 +1,31 @@
 import React, { useState, useEffect } from "react";
-import { Booking, SystemUser } from "../types";
-import { SALAS_PREDEFINIDAS, EQUIPAMENTOS_PREDEFINIDOS } from "../data";
-import { X, Calendar, Clock, User, MessageSquare, AlertCircle, Sparkles, Check, HelpCircle, Bell, Mail, ShieldAlert, Lock } from "lucide-react";
+import { Booking, SystemUser, Equipment } from "../types";
+import { 
+  X, Calendar, Clock, User, Check, AlertCircle, MessageSquare, Bell, Mail
+} from "lucide-react";
 
+// Predefined Rooms
+export const SALAS_PREDEFINIDAS = [
+  { id: "sala-escola", nome: "Sala (Escola de Saúde)", capacidade: 30 },
+  { id: "sala-reunioes-2", nome: "Sala de reuniões 2", capacidade: 12 },
+  { id: "sala-conselho", nome: "Sala do Conselho", capacidade: 20 },
+  { id: "auditorio", nome: "Auditório Principal", capacidade: 80 }
+];
 
 interface BookingFormProps {
-  booking: Booking | null; // Null if adding a new one, booking if editing
+  booking: Booking | null;
   allBookings: Booking[];
   currentUser: SystemUser;
   users: SystemUser[];
-  onSave: (booking: Booking) => void;
+  equipments?: Equipment[];
+  onSave: (booking: Booking & { deEquipmentsIds?: any[] }) => void;
   onClose: () => void;
   addToast: (type: "success" | "error" | "warning" | "info", title: string, message: string) => void;
 }
 
-function timeToMinutes(t: string): number {
-  if (!t) return 0;
-  const parts = t.split(":");
+function timeToMinutes(tStr: string): number {
+  if (!tStr) return 0;
+  const parts = tStr.split(":");
   const h = parseInt(parts[0], 10) || 0;
   const m = parseInt(parts[1], 10) || 0;
   return h * 60 + m;
@@ -38,7 +47,16 @@ function calculateDuration(start: string, end: string): string {
   return `${hours}:${minutes.toString().padStart(2, "0")}`;
 }
 
-export default function BookingForm({ booking, allBookings, currentUser, users, onSave, onClose, addToast }: BookingFormProps) {
+export default function BookingForm({ 
+  booking, 
+  allBookings, 
+  currentUser, 
+  users, 
+  equipments = [], 
+  onSave, 
+  onClose, 
+  addToast 
+}: BookingFormProps) {
   const [id, setId] = useState("");
   const [data, setData] = useState("");
   const [horaInicial, setHoraInicial] = useState("09:00");
@@ -47,24 +65,24 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
   const [tempoDeUso, setTempoDeUso] = useState("1:30hs");
   const [pessoas, setPessoas] = useState("");
   const [responsavel, setResponsavel] = useState("");
-  const [equipamentos, setEquipamentos] = useState("Sem material");
   const [motivo, setMotivo] = useState("");
   const [situacao, setSituacao] = useState<"Finalizado" | "Confirmado" | "Cancelado">("Confirmado");
   const [lembreteAntecedencia, setLembreteAntecedencia] = useState<"none" | "15min" | "30min" | "1h" | "2h" | "24h">("30min");
   const [lembreteMeio, setLembreteMeio] = useState<"none" | "email" | "push" | "ambos">("email");
   const [usuarioId, setUsuarioId] = useState("");
+
+  // Map of equipmentId -> requested quantity
+  const [requestedEqs, setRequestedEqs] = useState<Record<string, number>>({});
   
   const [conflict, setConflict] = useState<Booking | null>(null);
 
   // Checks permission
   const isNew = !booking || !booking.id;
-  
-  // If editing, check ownership
   const isOwner = booking ? (booking.usuarioId === currentUser.id || booking.responsavel.toLowerCase().trim() === currentUser.nome.toLowerCase().trim()) : true;
   const isAdmin = currentUser.role === "Administrador";
   const canEdit = isNew || isOwner || isAdmin;
 
-  // Initialize form with edited values or defaults
+  // Initialize form
   useEffect(() => {
     if (booking) {
       setId(booking.id);
@@ -75,14 +93,21 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
       setTempoDeUso(booking.tempoDeUso);
       setPessoas(booking.pessoas || "");
       setResponsavel(booking.responsavel);
-      setEquipamentos(booking.equipamentos);
       setMotivo(booking.motivo);
       setSituacao(booking.situacao);
       setLembreteAntecedencia(booking.lembreteAntecedencia || "none");
       setLembreteMeio(booking.lembreteMeio || "none");
       setUsuarioId(booking.usuarioId || "");
+
+      // Load requested equipment counts
+      const eqMap: Record<string, number> = {};
+      if (booking.equipmentsRequested) {
+        booking.equipmentsRequested.forEach((er) => {
+          eqMap[er.equipmentId] = er.quantidade;
+        });
+      }
+      setRequestedEqs(eqMap);
     } else {
-      // Set default date to today or next weekday
       const today = new Date();
       const yr = today.getFullYear();
       const mo = String(today.getMonth() + 1).padStart(2, "0");
@@ -95,12 +120,12 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
       setTempoDeUso("1:30hs");
       setPessoas("");
       setResponsavel(currentUser.nome);
-      setEquipamentos("Sem material");
       setMotivo("");
       setSituacao("Confirmado");
       setLembreteAntecedencia("30min");
       setLembreteMeio("email");
       setUsuarioId(currentUser.id);
+      setRequestedEqs({});
     }
   }, [booking, currentUser]);
 
@@ -128,14 +153,13 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
     }
 
     const overlapping = allBookings.find((b) => {
-      if (b.id === id) return false; // skip editing item
-      if (b.situacao === "Cancelado") return false; // skip canceled reservation conflict
+      if (b.id === id) return false;
+      if (b.situacao === "Cancelado") return false;
       if (b.sala !== sala || b.data !== data) return false;
 
       const otherStart = timeToMinutes(b.horaInicial);
       const otherEnd = timeToMinutes(b.horaFinal || b.horaInicial);
 
-      // Overlap formula: (start1 < end2) AND (end1 > start2)
       return startMin < otherEnd && endMin > otherStart;
     });
 
@@ -143,8 +167,8 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
       if (!conflict || conflict.id !== overlapping.id) {
         addToast(
           "warning",
-          "⚠️ Detecção de Conflito!",
-          `${sala} já está reservada por ${overlapping.responsavel} das ${overlapping.horaInicial} às ${overlapping.horaFinal} na data selecionada!`
+          "⚠️ Horário Indisponível",
+          `A sala "${sala}" já está ocupada por ${overlapping.responsavel} das ${overlapping.horaInicial} às ${overlapping.horaFinal}.`
         );
       }
       setConflict(overlapping);
@@ -178,8 +202,13 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
 
     const calculatedDuration = tempoDeUso || calculateDuration(horaInicial, horaFinal) || "1h";
 
+    // Format requested equipments selection
+    const selectedEqsArray = Object.entries(requestedEqs)
+      .map(([equipmentId, quantidade]) => ({ equipmentId, quantidade }))
+      .filter((eq) => eq.quantidade > 0);
+
     onSave({
-      id: id || `booking-${Date.now()}`,
+      id,
       data,
       horaInicial,
       horaFinal,
@@ -187,82 +216,78 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
       tempoDeUso: calculatedDuration,
       pessoas,
       responsavel,
-      equipamentos,
+      equipamentos: "Controle de Equipamentos", // backend overrides this field to human list
       motivo,
       situacao,
-      usuarioId: usuarioId || currentUser.id,
       lembreteAntecedencia,
       lembreteMeio,
+      usuarioId: usuarioId || currentUser.id,
+      deEquipmentsIds: selectedEqsArray
     });
   };
 
-  const getPortugueseDate = (dateStr: string) => {
-    try {
-      const [year, month, day] = dateStr.split("-").map(Number);
-      const date = new Date(year, month - 1, day);
-      return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
-    } catch {
-      return dateStr;
-    }
+  const getPortugueseDate = (dStr: string) => {
+    if (!dStr) return "";
+    const parts = dStr.split("-");
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto font-sans">
+      <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 md:p-8 shadow-2xl relative animate-scale-up scrollbar-thin">
         
         {/* Header */}
-        <div className="bg-gradient-to-r from-violet-700 to-indigo-800 px-6 py-4 flex items-center justify-between text-white">
+        <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
           <div>
-            <h2 className="text-lg font-bold flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-amber-300" />
-              {booking ? "Editar Agendamento" : "Criar Novo Agendamento"}
+            <span className="text-[10px] bg-indigo-50 text-indigo-700 font-extrabold px-2.5 py-1 rounded-full uppercase tracking-widest">
+              {id ? "Ajuste de Reserva" : "Novo Agendamento"}
+            </span>
+            <h2 className="text-xl font-black text-slate-800 tracking-tight mt-1.5">
+              {id ? "Editar Agendamento Ativo" : "Agendar Chave/Sala Corporativa"}
             </h2>
-            <p className="text-xs text-indigo-100/80">Preencha os dados da reserva da sala</p>
           </div>
           <button
             onClick={onClose}
-            className="text-white hover:bg-white/20 p-1.5 rounded-full transition-colors"
+            className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
             title="Fechar"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4">
+        {/* Read-Only Warning */}
+        {!canEdit && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3 flex gap-3 mb-4">
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider">Modo Apenas Leitura</p>
+              <p className="text-xs mt-0.5">
+                Esta reserva pertence a <strong>{responsavel}</strong>. O seu nível de permissão ("{currentUser.role}") não permite editar ou excluir agendamentos de terceiros.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Conflict Warning */}
+        {conflict && (
+          <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex gap-3 text-rose-800 mb-4 animate-pulse">
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-rose-600" />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider">Erro: Conflito de Horário Detectado!</p>
+              <p className="text-xs mt-0.5">
+                A <strong>{sala}</strong> já está reservada por <strong>{conflict.responsavel}</strong> das{" "}
+                <strong>{conflict.horaInicial}</strong> às <strong>{conflict.horaFinal}</strong> em{" "}
+                <strong>{getPortugueseDate(conflict.data)}</strong> ({conflict.motivo}).
+              </p>
+              <p className="text-[10px] text-rose-700 mt-1 font-extrabold flex items-center gap-1 bg-rose-100/50 p-1 rounded-md">
+                🚫 Não é possível realizar ou salvar este agendamento devido à sobreposição de horários.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
           
-          {/* Permission Lock Warning Banner */}
-          {!canEdit && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-3 text-amber-900">
-              <Lock className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-amber-800">Modo de Visualização Apenas</p>
-                <p className="text-xs mt-0.5">
-                  Esta reserva pertence a <strong>{responsavel}</strong>. O seu nível de permissão ("{currentUser.role}") não permite editar ou excluir agendamentos de terceiros.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Conflict Warning */}
-          {conflict && (
-            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex gap-3 text-rose-800 animate-pulse">
-              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-rose-600" />
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider">Erro: Conflito de Horário Detectado!</p>
-                <p className="text-xs mt-0.5">
-                  A <strong>{sala}</strong> já está reservada por <strong>{conflict.responsavel}</strong> das{" "}
-                  <strong>{conflict.horaInicial}</strong> às <strong>{conflict.horaFinal}</strong> em{" "}
-                  <strong>{getPortugueseDate(conflict.data)}</strong> ({conflict.motivo}).
-                </p>
-                <p className="text-[10px] text-rose-700 mt-1 font-extrabold flex items-center gap-1 bg-rose-100/50 p-1 rounded-md">
-                  🚫 Não é possível realizar ou salvar este agendamento devido à sobreposição de horários.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Form Fields Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             
             {/* Sala Select */}
@@ -272,7 +297,7 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
                 value={sala}
                 onChange={(e) => setSala(e.target.value)}
                 disabled={!canEdit}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
               >
                 {SALAS_PREDEFINIDAS.map((room) => (
                   <option key={room.id} value={room.nome}>
@@ -293,7 +318,7 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
                 value={data}
                 onChange={(e) => setData(e.target.value)}
                 disabled={!canEdit}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
               />
             </div>
 
@@ -304,7 +329,7 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
                 value={situacao}
                 onChange={(e) => setSituacao(e.target.value as any)}
                 disabled={!canEdit}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
               >
                 <option value="Confirmado">📅 Agendado / Confirmado</option>
                 <option value="Finalizado">✅ Finalizado</option>
@@ -323,7 +348,7 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
                 value={horaInicial}
                 onChange={(e) => setHoraInicial(e.target.value)}
                 disabled={!canEdit}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
               />
             </div>
 
@@ -338,36 +363,33 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
                 value={horaFinal}
                 onChange={(e) => setHoraFinal(e.target.value)}
                 disabled={!canEdit}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
               />
             </div>
 
-            {/* Autocalculated Duration or Custom Text */}
+            {/* Autocalculated Duration */}
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Duração (Tempo de Uso)
-              </label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Duração</label>
               <input
                 type="text"
                 placeholder="Ex: 1:30hs ou 2h"
                 value={tempoDeUso}
                 onChange={(e) => setTempoDeUso(e.target.value)}
                 disabled={!canEdit}
-                className="w-full bg-indigo-50/50 border border-indigo-100 rounded-lg px-3 py-2 text-sm text-indigo-900 focus:outline-none focus:ring-2 focus:ring-violet-500 font-medium disabled:opacity-75 disabled:cursor-not-allowed"
+                className="w-full bg-indigo-50/50 border border-indigo-100 rounded-lg px-3 py-2 text-sm text-indigo-900 focus:outline-none focus:ring-2 focus:ring-violet-500 font-semibold disabled:opacity-75 disabled:cursor-not-allowed"
               />
-              <span className="text-[10px] text-slate-400 block mt-0.5">Calculado automaticamente se preencher as horas</span>
             </div>
 
-            {/* Qtd/Equipe de pessoas */}
+            {/* Pessoas / Equipe */}
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Pessoas ou Equipe</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Quantidade ou Equipe</label>
               <input
                 type="text"
                 placeholder="Ex: EQUIPE QUALIDADE ou 8 pessoas"
                 value={pessoas}
                 onChange={(e) => setPessoas(e.target.value)}
                 disabled={!canEdit}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
               />
             </div>
 
@@ -385,11 +407,10 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
                     setUsuarioId(matchedUser.id);
                   }
                 }}
-                disabled={!canEdit || (!isAdmin && !isNew)} // Standard users or owners can't transfer their booking responsible name once saved
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-850 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-medium"
+                disabled={!canEdit || (!isAdmin && !isNew)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-850 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
               >
-                <option value="">Selecione o responsável cadastrado...</option>
-                {/* Fallback for historical users not inside system list */}
+                <option value="">Selecione o responsável corporativo...</option>
                 {responsavel && !users.some(u => u.nome === responsavel) && (
                   <option value={responsavel}>{responsavel} (Histórico)</option>
                 )}
@@ -401,57 +422,118 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
               </select>
             </div>
 
-            {/* Equipamentos Select */}
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Equipamentos / Materiais</label>
-              <select
-                value={equipamentos}
-                onChange={(e) => setEquipamentos(e.target.value)}
-                disabled={!canEdit}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed"
-              >
-                {EQUIPAMENTOS_PREDEFINIDOS.map((eq) => (
-                  <option key={eq.nome} value={eq.nome}>
-                    {eq.nome === "Sem material" ? "Sem material / Sem equipamentos adicionais" : eq.nome}
-                  </option>
-                ))}
-                <option value="Apenas TV">Apenas TV</option>
-                <option value="PROJETOR + CAIXA DE SOM">PROJETOR + CAIXA DE SOM</option>
-                <option value="TV/COMPUTADOR + WEBCAM (Videoconferência)">TV/COMPUTADOR + WEBCAM (Videoconferência)</option>
-              </select>
+            {/* EQUIPMENTS CHECKLIST SELECT PANEL */}
+            <div className="sm:col-span-2 bg-slate-50 border border-slate-200 rounded-2xl p-4">
+              <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                📦 Solicitar Materiais / Equipamentos de TI
+              </label>
+              <p className="text-[10px] text-slate-400 leading-normal mb-3">
+                Os aparelhos solicitados passam por validação de concorrência de estoque nas horas reservadas.
+              </p>
+              
+              <div className="space-y-2">
+                {equipments && equipments.filter(eq => eq.ativo).length > 0 ? (
+                  equipments.filter(eq => eq.ativo).map((eq) => {
+                    const selectedQty = requestedEqs[eq.id] || 0;
+                    return (
+                      <div key={eq.id} className="flex items-center justify-between p-2.5 bg-white border border-slate-150 rounded-xl">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id={`equip-${eq.id}`}
+                            checked={selectedQty > 0}
+                            disabled={!canEdit}
+                            onChange={(e) => {
+                              setRequestedEqs((prev) => ({
+                                ...prev,
+                                [eq.id]: e.target.checked ? 1 : 0
+                              }));
+                            }}
+                            className="w-4 h-4 text-violet-700 border-slate-300 rounded focus:ring-violet-500 cursor-pointer disabled:opacity-50"
+                          />
+                          <label htmlFor={`equip-${eq.id}`} className="text-xs font-bold text-slate-700 cursor-pointer select-none">
+                            {eq.nome}
+                          </label>
+                        </div>
+
+                        {selectedQty > 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase">Qtd:</span>
+                            <div className="flex items-center border border-slate-200 rounded-lg bg-slate-50 overflow-hidden">
+                              <button
+                                type="button"
+                                disabled={!canEdit}
+                                onClick={() => {
+                                  setRequestedEqs((prev) => ({
+                                    ...prev,
+                                    [eq.id]: Math.max(1, selectedQty - 1)
+                                  }));
+                                }}
+                                className="px-2 py-1 text-xs font-black text-slate-500 hover:bg-slate-200 disabled:opacity-40"
+                              >
+                                -
+                              </button>
+                              <span className="px-2 text-xs font-black text-slate-800 font-mono">
+                                {selectedQty}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={!canEdit}
+                                onClick={() => {
+                                  setRequestedEqs((prev) => ({
+                                    ...prev,
+                                    [eq.id]: Math.min(eq.quantidade, selectedQty + 1)
+                                  }));
+                                }}
+                                className="px-2 py-1 text-xs font-black text-slate-500 hover:bg-slate-200 disabled:opacity-40"
+                              >
+                                +
+                              </button>
+                            </div>
+                            <span className="text-[9px] text-[#6D3292] font-mono font-bold bg-purple-50 px-1 rounded">
+                              Max: {eq.quantidade}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-xs text-slate-400 italic">Sem materiais adicionais cadastrados ou ativos no momento.</p>
+                )}
+              </div>
             </div>
 
             {/* Motivo da reunião */}
             <div className="sm:col-span-2">
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
-                <MessageSquare className="w-3 h-3 text-slate-400" /> Motivo / Assunto da Reunião
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
+                <MessageSquare className="w-3 h-3 text-slate-400" /> Motivo / Assunto da Reunião *
               </label>
               <textarea
                 required
                 rows={2}
-                placeholder="Ex: Alinhamento trimestral, Integração de novos colaboradores, etc."
+                placeholder="Ex: Alinhamento de metas bimestrais, etc."
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
                 disabled={!canEdit}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
               />
             </div>
 
-            {/* Lembretes e Notificacoes */}
-            <div className="sm:col-span-2 border-t border-slate-100 pt-4 mt-2">
-              <h4 className="text-xs font-black text-indigo-700 uppercase tracking-widest flex items-center gap-1.5 mb-3">
+            {/* Lembretes e Notificações */}
+            <div className="sm:col-span-2 border-t border-slate-100 pt-4">
+              <h4 className="text-xs font-black text-indigo-700 uppercase tracking-widest flex items-center gap-1.5 mb-2">
                 <Bell className="w-4 h-4 text-indigo-600 animate-pulse" />
-                Lembretes e Notificações dadas ao Responsável
+                Lembretes e Notificações
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200/60">
-                {/* Antecedencia */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Deseja receber lembrete?</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Deseja Lembrete?</label>
                   <select
                     value={lembreteAntecedencia}
                     onChange={(e) => setLembreteAntecedencia(e.target.value as any)}
                     disabled={!canEdit}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
                   >
                     <option value="none">Nenhum lembrete</option>
                     <option value="15min">⏰ 15 minutos antes</option>
@@ -462,14 +544,13 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
                   </select>
                 </div>
 
-                {/* Meio de Envio */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Meio de Envio</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Canal de Envio</label>
                   <select
                     value={lembreteMeio}
                     onChange={(e) => setLembreteMeio(e.target.value as any)}
                     disabled={!canEdit || lembreteAntecedencia === "none"}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                   >
                     <option value="none">Nenhum</option>
                     <option value="email">📧 Enviar por E-mail</option>
@@ -480,9 +561,9 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
               </div>
               {lembreteAntecedencia !== "none" && lembreteMeio !== "none" && (
                 <p className="text-[10px] text-indigo-700 font-bold mt-2 flex items-center gap-1 bg-indigo-50 p-2.5 rounded-lg border border-indigo-100">
-                  <Mail className="w-3.5 h-3.5" />
+                  <Mail className="w-3.5 h-3.5 shrink-0 text-indigo-600" />
                   <span>
-                    Ativado! O sistema notificará {responsavel || currentUser.nome} às {horaInicial} ({lembreteAntecedencia === "15min" ? "15 minutos antes" : lembreteAntecedencia === "30min" ? "30 minutos antes" : lembreteAntecedencia === "1h" ? "1 hora antes" : lembreteAntecedencia === "2h" ? "2 horas antes" : "24 horas antes"}) via {lembreteMeio === "email" ? "E-mail" : lembreteMeio === "push" ? "Notificação Push" : "E-mail e Notificação Push"}.
+                    Ativado! O sistema notificará o colega {responsavel || currentUser.nome} via {lembreteMeio === "email" ? "E-mail" : lembreteMeio === "push" ? "Notificação Push" : "E-mail e Push"} antes da reserva.
                   </span>
                 </p>
               )}
@@ -490,22 +571,24 @@ export default function BookingForm({ booking, allBookings, currentUser, users, 
 
           </div>
 
-          {/* Form Action Buttons */}
+          {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
               onClick={onClose}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer"
             >
               Cancelar
             </button>
-            <button
-              type="submit"
-              className="bg-violet-700 hover:bg-violet-800 text-white px-5 py-2 rounded-lg text-sm font-semibold shadow-sm hover:shadow transition-all flex items-center gap-1.5"
-            >
-              <Check className="w-4 h-4" />
-              {booking ? "Atualizar Reserva" : "Confirmar Agendamento"}
-            </button>
+            {canEdit && (
+              <button
+                type="submit"
+                className="bg-[#6D3292] hover:bg-[#5C2a7B] text-white px-5 py-2 rounded-lg text-sm font-semibold shadow-sm hover:shadow transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                {id ? "Atualizar Reserva" : "Confirmar Agendamento"}
+              </button>
+            )}
           </div>
 
         </form>

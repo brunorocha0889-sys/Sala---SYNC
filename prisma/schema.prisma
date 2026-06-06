@@ -15,26 +15,29 @@ model User {
   senha     String
   role      String
   setor     String
+  setorId   String?
+  setorRel  Sector?   @relation(fields: [setorId], references: [id], onDelete: SetNull)
   avatarUrl String?   @default("")
   bookings  Booking[]
 }
 
 model Booking {
-  id                   String   @id @default(uuid())
+  id                   String             @id @default(uuid())
   sala                 String
   data                 String
   horaInicial          String
   horaFinal            String
   responsavel          String
   motivo               String
-  situacao             String   // "Confirmado", "Finalizado", "Cancelado"
+  situacao             String             // "Confirmado", "Finalizado", "Cancelado"
   equipamentos         String
-  tempoDeUso           String?  @default("1h")
-  pessoas              String?  @default("1")
+  tempoDeUso           String?            @default("1h")
+  pessoas              String?            @default("1")
   usuarioId            String?
-  lembreteAntecedencia String?  @default("none")
-  lembreteMeio         String?  @default("none")
-  usuario              User?    @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  lembreteAntecedencia String?            @default("none")
+  lembreteMeio         String?            @default("none")
+  usuario              User?              @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  equipmentsRequested  BookingEquipment[]
 }
 
 model Room {
@@ -43,4 +46,29 @@ model Room {
   corBg      String
   corTexto   String
   capacidade Int
+}
+
+model Sector {
+  id    String @id @default(uuid())
+  nome  String @unique
+  users User[]
+}
+
+model Equipment {
+  id         String             @id @default(uuid())
+  nome       String             @unique
+  quantidade Int
+  ativo      Boolean            @default(true)
+  bookings   BookingEquipment[]
+}
+
+model BookingEquipment {
+  id            String    @id @default(uuid())
+  bookingId     String
+  equipmentId   String
+  quantidade    Int       @default(1)
+  booking       Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  equipment     Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, equipmentId])
 }

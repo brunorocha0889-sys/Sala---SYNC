@@ -1,44 +1,63 @@
 import React, { useState } from "react";
-import { SystemUser, Booking } from "../types";
+import { SystemUser, Booking, Sector, Equipment } from "../types";
 import { 
   Users, UserPlus, Shield, Mail, Briefcase, Trash2, Edit2, CheckCircle2, 
-  Lock, AlertTriangle, Key, ArrowRight, UserCheck, Bell, Info, Send 
+  Lock, AlertTriangle, Key, ArrowRight, UserCheck, Bell, Info, Send, Layers, Settings, ClipboardList
 } from "lucide-react";
 
 interface UserManagementProps {
   users: SystemUser[];
+  sectors: Sector[];
+  equipments: Equipment[];
   bookings: Booking[];
   currentUser: SystemUser;
   onSaveUser: (user: SystemUser) => void;
   onDeleteUser: (id: string) => void;
-  onSelectUser?: (user: SystemUser) => void;
+  onRefreshSectors: () => void;
+  onRefreshEquipments: () => void;
 }
 
 export default function UserManagement({
   users,
+  sectors,
+  equipments,
   bookings,
   currentUser,
   onSaveUser,
   onDeleteUser,
-  onSelectUser,
+  onRefreshSectors,
+  onRefreshEquipments,
 }: UserManagementProps) {
   const isAdmin = currentUser.role === "Administrador";
 
-  // Form states
+  // Form states for Users
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
-  const [setor, setSetor] = useState("");
+  const [setorId, setSetorId] = useState("");
   const [role, setRole] = useState<"Administrador" | "Usuário Padrão">("Usuário Padrão");
   const [senha, setSenha] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  // Form states for Sector Manager panel
+  const [editingSectorId, setEditingSectorId] = useState<string | null>(null);
+  const [sectorName, setSectorName] = useState("");
+  
+  // Form states for Equipment Manager panel
+  const [editingEquipmentId, setEditingEquipmentId] = useState<string | null>(null);
+  const [equipmentName, setEquipmentName] = useState("");
+  const [equipmentQty, setEquipmentQty] = useState<number>(1);
+  const [equipmentActive, setEquipmentActive] = useState<boolean>(true);
+
+  // Sub-tabs in administration section: "users" | "sectors" | "equipments"
+  const [adminSubTab, setAdminSubTab] = useState<"users" | "sectors" | "equipments">("users");
 
   const handleEditUser = (user: SystemUser) => {
     if (!isAdmin) return;
     setEditingUserId(user.id);
     setNome(user.nome);
     setEmail(user.email);
-    setSetor(user.setor);
+    setSetorId(user.setorId || "");
     setRole(user.role);
     setSenha(user.senha || "");
   };
@@ -47,18 +66,18 @@ export default function UserManagement({
     setEditingUserId(null);
     setNome("");
     setEmail("");
-    setSetor("");
+    setSetorId("");
     setRole("Usuário Padrão");
     setSenha("");
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmitUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) {
       alert("Apenas administradores do Setor de TI podem realizar essa alteração.");
       return;
     }
-    if (!nome.trim() || !email.trim() || !setor.trim()) {
+    if (!nome.trim() || !email.trim() || !setorId) {
       alert("Preencha todos os campos obrigatórios (Nome, E-mail e Setor).");
       return;
     }
@@ -66,6 +85,9 @@ export default function UserManagement({
       alert("Defina uma senha de acesso para o usuário.");
       return;
     }
+
+    const matchedSector = sectors.find(s => s.id === setorId);
+    const sectorLabel = matchedSector ? matchedSector.nome : "TI";
 
     const initials = nome
       .split(" ")
@@ -79,7 +101,8 @@ export default function UserManagement({
       id: editingUserId || `user-${Date.now()}`,
       nome: nome.trim(),
       email: email.trim().toLowerCase(),
-      setor: setor.trim(),
+      setor: sectorLabel,
+      setorId,
       role,
       avatarUrl: initials,
       senha: senha.trim(),
@@ -87,28 +110,160 @@ export default function UserManagement({
 
     onSaveUser(newUser);
     
-    // Feedback
     setSuccessMsg(editingUserId ? "Usuário atualizado com sucesso!" : "Novo usuário cadastrado para agendamentos!");
     setTimeout(() => setSuccessMsg(""), 4000);
 
-    // Reset
     handleCancelEdit();
   };
 
-  // Sector list helper
-  const sectors = ["TI", "Qualidade", "Faturamento", "Fisioterapia", "Enfermagem", "Financeiro", "Recursos Humanos", "Diretoria"];
+  // SECTORS CRUD Actions API proxier
+  const handleSaveSector = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sectorName.trim()) return;
 
-  // Notification history helper: let's build simulations of emails and push alerts
+    const token = localStorage.getItem("auth_token") || "";
+    try {
+      let res;
+      if (editingSectorId) {
+        res = await fetch(`/api/sectors/${editingSectorId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({ nome: sectorName })
+        });
+      } else {
+        res = await fetch(`/api/sectors`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({ nome: sectorName })
+        });
+      }
+
+      if (res.ok) {
+        setSuccessMsg(editingSectorId ? "Setor atualizado!" : "Novo setor cadastrado!");
+        setTimeout(() => setSuccessMsg(""), 4000);
+        setSectorName("");
+        setEditingSectorId(null);
+        onRefreshSectors();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Erro ao salvar setor.");
+      }
+    } catch {
+      alert("Erro ao conectar.");
+    }
+  };
+
+  const handleDeleteSector = async (id: string, name: string) => {
+    if (!window.confirm(`Tem certeza de que deseja excluir permanentemente o setor "${name}"?`)) return;
+    const token = localStorage.getItem("auth_token") || "";
+    try {
+      const res = await fetch(`/api/sectors/${id}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setSuccessMsg("Setor removido com sucesso!");
+        setTimeout(() => setSuccessMsg(""), 4000);
+        onRefreshSectors();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Não foi possível remover o setor.");
+      }
+    } catch {
+      alert("Erro de conexão.");
+    }
+  };
+
+  // EQUIPMENTS CRUD Actions API proxier
+  const handleSaveEquipment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!equipmentName.trim()) return;
+
+    const token = localStorage.getItem("auth_token") || "";
+    try {
+      let res;
+      const payload = {
+        nome: equipmentName,
+        quantidade: Number(equipmentQty),
+        ativo: equipmentActive
+      };
+
+      if (editingEquipmentId) {
+        res = await fetch(`/api/equipments/${editingEquipmentId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify(payload)
+        });
+      } else {
+        res = await fetch(`/api/equipments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify(payload)
+        });
+      }
+
+      if (res.ok) {
+        setSuccessMsg(editingEquipmentId ? "Equipamento editado com sucesso!" : "Equipamento adicionado!");
+        setTimeout(() => setSuccessMsg(""), 4050);
+        setEquipmentName("");
+        setEquipmentQty(1);
+        setEquipmentActive(true);
+        setEditingEquipmentId(null);
+        onRefreshEquipments();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Erro ao salvar equipamento.");
+      }
+    } catch {
+      alert("Erro ao conectar.");
+    }
+  };
+
+  const handleDeleteEquipment = async (id: string, name: string) => {
+    if (!window.confirm(`Tem certeza de que deseja excluir permanentemente "${name}" da lista de equipamentos?`)) return;
+    const token = localStorage.getItem("auth_token") || "";
+    try {
+      const res = await fetch(`/api/equipments/${id}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setSuccessMsg("Equipamento removido!");
+        setTimeout(() => setSuccessMsg(""), 4000);
+        onRefreshEquipments();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Não foi possível remover o equipamento.");
+      }
+    } catch {
+      alert("Erro de conexão.");
+    }
+  };
+
+  const handleToggleEquipmentActive = async (eq: Equipment) => {
+    const token = localStorage.getItem("auth_token") || "";
+    try {
+      const res = await fetch(`/api/equipments/${eq.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ ativo: !eq.ativo })
+      });
+      if (res.ok) {
+        onRefreshEquipments();
+      }
+    } catch {}
+  };
+
+
+  // Notification history helper
   const generateSimulatedNotifications = () => {
     const notifications: { id: string; user: string; to: string; type: string; time: string; msg: string; channel: string }[] = [];
     
-    // Sort bookings to get recent updates/creates simulating real-time mail queues
     bookings.slice(0, 8).forEach((b, idx) => {
       const userObj = users.find(u => u.nome.toLowerCase() === b.responsavel.toLowerCase() || u.id === b.usuarioId);
       const emailRecipient = userObj ? userObj.email : `${b.responsavel.toLowerCase().replace(/\s+/g, ".")}@empresa.com`;
       const sectorTag = userObj ? userObj.setor : "Geral";
 
-      // Simulation entry
       notifications.push({
         id: `noti-email-${b.id}-${idx}`,
         user: b.responsavel,
@@ -133,13 +288,38 @@ export default function UserManagement({
       {/* Admin Panel Controls Section */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs lg:col-span-1 flex flex-col justify-between">
         <div>
+          
+          {/* Sub Navigation for Administrators inside Management module */}
+          <div className="flex border-b border-slate-150 mb-5 gap-2 font-mono text-[10px] h-9">
+            <button
+              onClick={() => { setAdminSubTab("users"); handleCancelEdit(); }}
+              className={`pb-2 px-2 font-extrabold uppercase tracking-wider transition-all cursor-pointer ${adminSubTab === "users" ? "border-b-2 border-indigo-650 text-indigo-700 font-black" : "text-slate-450 hover:text-slate-700"}`}
+            >
+              Usuários
+            </button>
+            <button
+              onClick={() => { setAdminSubTab("sectors"); handleCancelEdit(); }}
+              className={`pb-2 px-2 font-extrabold uppercase tracking-wider transition-all cursor-pointer ${adminSubTab === "sectors" ? "border-b-2 border-indigo-650 text-indigo-700 font-black" : "text-slate-450 hover:text-slate-700"}`}
+            >
+              Setores ({sectors.length})
+            </button>
+            <button
+              onClick={() => { setAdminSubTab("equipments"); handleCancelEdit(); }}
+              className={`pb-2 px-2 font-extrabold uppercase tracking-wider transition-all cursor-pointer ${adminSubTab === "equipments" ? "border-b-2 border-indigo-650 text-indigo-700 font-black" : "text-slate-450 hover:text-slate-700"}`}
+            >
+              Equipamentos ({equipments.length})
+            </button>
+          </div>
+
           <div className="flex items-center gap-3 mb-4">
             <div className="bg-indigo-50 p-2.5 rounded-xl text-indigo-600">
-              <UserPlus className="w-5 h-5" />
+              {adminSubTab === "users" ? <UserPlus className="w-5 h-5" /> : adminSubTab === "sectors" ? <Layers className="w-5 h-5" /> : <Settings className="w-5 h-5" />}
             </div>
             <div>
               <h3 className="font-extrabold text-slate-800 text-sm uppercase tracking-wider">
-                {editingUserId ? "Editar Usuário" : "Cadastrar Novo Usuário"}
+                {adminSubTab === "users" ? (editingUserId ? "Editar Usuário" : "Cadastrar Usuário") : 
+                 adminSubTab === "sectors" ? (editingSectorId ? "Editar Setor" : "Cadastrar Setor") : 
+                 (editingEquipmentId ? "Editar Equipamento" : "Adicionar Equipamento")}
               </h3>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">
                 Permissão Administrada por: {currentUser.setor} (TI)
@@ -148,164 +328,323 @@ export default function UserManagement({
           </div>
 
           {successMsg && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl mb-4 text-xs font-bold flex items-center gap-2">
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl mb-4 text-xs font-bold flex items-center gap-2 animate-pulse">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               <span>{successMsg}</span>
             </div>
           )}
 
           {!isAdmin ? (
-            <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl p-4 space-y-3">
+            <div className="bg-amber-50 border border-amber-200 text-amber-950 rounded-2xl p-4 space-y-3">
               <div className="flex items-center gap-2 text-amber-800 font-bold text-xs uppercase tracking-wider">
                 <Lock className="w-4 h-4 text-amber-600" />
-                Acesso Restrito ao Admin (Setor de TI)
+                Acesso Restrito ao Admin
               </div>
               <p className="text-xs leading-relaxed">
-                Você está logado como <strong>{currentUser.nome}</strong> ({currentUser.role} / Setor {currentUser.setor}). 
-                A criação, deleção e edição de credenciais de usuários aptos a reservar salas são privilégios exclusivos de administradores operacionais do Setor de TI.
+                Você deve ser um administrador corporativo para modificar setores, equipamentos e usuários.
               </p>
-              <div className="text-[10px] bg-amber-100 border border-amber-200 p-2 rounded text-amber-900 font-semibold leading-normal">
-                💡 Utilize o <strong>Simulador de Permissões</strong> no topo direito da tela para trocar para o usuário "Amanda de Souza (Admin)" e testar todos os fluxos de escrita.
-              </div>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Nome */}
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
-                  Nome Completo *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: João Ferreira da Silva"
-                  value={nome}
-                  onChange={(e) => setNome(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                />
-              </div>
+            <>
+              {/* SUB TAB: USERS FORM */}
+              {adminSubTab === "users" && (
+                <form onSubmit={handleSubmitUser} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
+                      Nome Completo *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: João Ferreira da Silva"
+                      value={nome}
+                      onChange={(e) => setNome(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                    />
+                  </div>
 
-              {/* Email */}
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
-                  E-mail Oficial * (Receberá as notificações)
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="Ex: joao.silva@empresa.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                />
-              </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
+                      E-mail Oficial *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="Ex: joao.silva@sala-sync.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                    />
+                  </div>
 
-              {/* Setor */}
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
-                  Setor do Usuário *
-                </label>
-                <select
-                  value={setor}
-                  onChange={(e) => setSetor(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                >
-                  <option value="">Selecione o setor...</option>
-                  {sectors.map((sec) => (
-                    <option key={sec} value={sec}>
-                      {sec}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
+                      Setor Corporativo *
+                    </label>
+                    <select
+                      value={setorId}
+                      required
+                      onChange={(e) => setSetorId(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold appearance-none cursor-pointer"
+                    >
+                      <option value="">Selecione um setor cadastrado...</option>
+                      {sectors.map((sec) => (
+                        <option key={sec.id} value={sec.id}>
+                          {sec.nome}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-              {/* Role */}
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
-                  Cargo / Nível de Permissão
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setRole("Usuário Padrão")}
-                    className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-all ${
-                      role === "Usuário Padrão"
-                        ? "bg-indigo-50 border-indigo-200 text-indigo-700"
-                        : "bg-slate-50 border-slate-200 text-slate-500"
-                    }`}
-                  >
-                    Usuário Padrão
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRole("Administrador")}
-                    className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-all ${
-                      role === "Administrador"
-                        ? "bg-violet-50 border-violet-200 text-violet-700"
-                        : "bg-slate-50 border-slate-200 text-slate-500"
-                    }`}
-                  >
-                    Administrador
-                  </button>
-                </div>
-                <span className="text-[10px] text-slate-400 font-medium block mt-1.5 italic">
-                  * Administradores podem visualizar e editar todos os agendamentos.
-                </span>
-              </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
+                      Cargo / Nível de Permissão
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRole("Usuário Padrão")}
+                        className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-all ${
+                          role === "Usuário Padrão"
+                            ? "bg-indigo-50 border-indigo-200 text-indigo-700"
+                            : "bg-slate-50 border-slate-200 text-slate-500"
+                        }`}
+                      >
+                        Usuário Padrão
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRole("Administrador")}
+                        className={`py-2 px-3 text-xs font-bold rounded-xl border text-center transition-all ${
+                          role === "Administrador"
+                            ? "bg-violet-50 border-violet-200 text-violet-700"
+                            : "bg-slate-50 border-slate-200 text-slate-500"
+                        }`}
+                      >
+                        Administrador
+                      </button>
+                    </div>
+                  </div>
 
-              {/* Senha */}
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
-                  Senha de Acesso do Usuário *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Defina uma senha segura para este login"
-                  value={senha}
-                  onChange={(e) => setSenha(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                />
-                <span className="text-[9px] text-slate-450 block mt-1 leading-normal">
-                  Esta senha será obrigatória para este usuário realizar login ao entrar no sistema.
-                </span>
-              </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
+                      Senha de Acesso do Usuário *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Defina uma senha"
+                      value={senha}
+                      onChange={(e) => setSenha(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                    />
+                  </div>
 
-              {/* Form Buttons */}
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="submit"
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-4 rounded-xl shadow-sm transition-all text-center"
-                >
-                  {editingUserId ? "Salvar Alterações" : "Cadastrar Usuário"}
-                </button>
-                {editingUserId && (
-                  <button
-                    type="button"
-                    onClick={handleCancelEdit}
-                    className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs uppercase tracking-wider py-2.5 px-3 rounded-xl transition-all"
-                  >
-                    Cancelar
-                  </button>
-                )}
-              </div>
-            </form>
+                  <div className="flex items-center gap-2 pt-2">
+                    <button
+                      type="submit"
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-4 rounded-xl shadow-sm transition-all text-center"
+                    >
+                      {editingUserId ? "Salvar Alterações" : "Cadastrar Usuário"}
+                    </button>
+                    {editingUserId && (
+                      <button
+                        type="button"
+                        onClick={handleCancelEdit}
+                        className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs uppercase tracking-wider py-2.5 px-3 rounded-xl"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+              )}
+
+              {/* SUB TAB: SECTORS FORM */}
+              {adminSubTab === "sectors" && (
+                <form onSubmit={handleSaveSector} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
+                      Nome do Setor *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Faturamento"
+                      value={sectorName}
+                      onChange={(e) => setSectorName(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="submit"
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-4 rounded-xl shadow-sm transition-all text-center"
+                    >
+                      {editingSectorId ? "Atualizar Setor" : "Cadastrar Setor"}
+                    </button>
+                    {editingSectorId && (
+                      <button
+                        type="button"
+                        onClick={() => { setEditingSectorId(null); setSectorName(""); }}
+                        className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs uppercase tracking-wider py-2.5 px-3 rounded-xl"
+                      >
+                        Voltar
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="border-t border-slate-100 pt-3 mt-3">
+                    <p className="text-[10px] font-black text-slate-450 uppercase tracking-widest mb-2">Setores Atuais</p>
+                    <div className="space-y-1.5 max-h-[180px] overflow-y-auto scrollbar-thin">
+                      {sectors.map(sec => (
+                        <div key={sec.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-110 text-xs">
+                          <span className="font-bold text-slate-800">{sec.nome}</span>
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => { setEditingSectorId(sec.id); setSectorName(sec.nome); }}
+                              className="text-indigo-600 hover:text-indigo-800 font-bold"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSector(sec.id, sec.nome)}
+                              className="text-rose-600 hover:text-rose-800 font-bold"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </form>
+              )}
+
+              {/* SUB TAB: EQUIPMENTS FORM */}
+              {adminSubTab === "equipments" && (
+                <form onSubmit={handleSaveEquipment} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
+                      Nome do Equipamento *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Projetor / Datashow"
+                      value={equipmentName}
+                      onChange={(e) => setEquipmentName(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
+                      Quantidade Disponível para Reserva *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      value={equipmentQty}
+                      onChange={(e) => setEquipmentQty(Number(e.target.value))}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="eq-active"
+                      checked={equipmentActive}
+                      onChange={(e) => setEquipmentActive(e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500"
+                    />
+                    <label htmlFor="eq-active" className="text-xs font-bold text-slate-600 uppercase tracking-wider cursor-pointer select-none">
+                      Equipamento Ativo para Solicitações
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="submit"
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-4 rounded-xl shadow-sm transition-all text-center"
+                    >
+                      {editingEquipmentId ? "Salvar Equipamento" : "Adicionar Equipamento"}
+                    </button>
+                    {editingEquipmentId && (
+                      <button
+                        type="button"
+                        onClick={() => { setEditingEquipmentId(null); setEquipmentName(""); setEquipmentQty(1); setEquipmentActive(true); }}
+                        className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs uppercase tracking-wider py-2.5 px-3 rounded-xl"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="border-t border-slate-100 pt-3 mt-3">
+                    <p className="text-[10px] font-black text-slate-450 uppercase tracking-widest mb-2">Equipamentos Atuais</p>
+                    <div className="space-y-1.5 max-h-[150px] overflow-y-auto scrollbar-thin">
+                      {equipments.map(eq => (
+                        <div key={eq.id} className="p-2 bg-slate-50 rounded-lg border border-slate-110 text-xs flex flex-col gap-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-800">{eq.nome}</span>
+                            <span className="font-mono bg-indigo-100 text-indigo-800 font-extrabold px-1.5 py-0.5 rounded">
+                              Qtd: {eq.quantidade}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-100 mt-1">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleEquipmentActive(eq)}
+                              className={`text-[9px] uppercase tracking-wide font-extrabold px-1.5 py-0.5 rounded ${eq.ativo ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-slate-150 text-slate-500 border border-slate-300"}`}
+                            >
+                              {eq.ativo ? "● Ativo" : "○ Inativo"}
+                            </button>
+                            <div className="flex gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => { setEditingEquipmentId(eq.id); setEquipmentName(eq.nome); setEquipmentQty(eq.quantidade); setEquipmentActive(eq.ativo); }}
+                                className="text-indigo-600 hover:text-indigo-800 font-bold"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteEquipment(eq.id, eq.nome)}
+                                className="text-rose-600 hover:text-rose-800 font-bold"
+                              >
+                                Remover
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </form>
+              )}
+            </>
           )}
         </div>
 
-        {/* Informative tips widget */}
+        {/* Informative footer widget */}
         <div className="mt-6 border-t border-slate-100 pt-4 text-[10px] text-slate-400 space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-100">
           <p className="font-bold uppercase text-slate-500 flex items-center gap-1">
             <Info className="w-3.5 h-3.5 text-indigo-500" />
-            Integridade do Sistema
+            Integridade de Setores e Materiais
           </p>
           <p className="leading-snug">
-            Usuários cadastrados vinculados a reservas garantem que os e-mails e alertas sejam despachados para as Unidades correspondentes com sucesso.
+            Toda reserva exige que o solicitante seja devidamente indexado pelo seu setor de origem. Os equipamentos solicitados passam por um robô de concorrência que impede o excesso de agendamentos de aparelhos em um mesmo intervalo de horas.
           </p>
         </div>
       </div>
 
-      {/* Center & Right Column: User list + real-time Notification simulations log */}
+      {/* Center & Right Column: User list + Notification logs */}
       <div className="lg:col-span-2 space-y-6">
         
         {/* Users List Grid */}
@@ -341,7 +680,6 @@ export default function UserManagement({
                   }`}
                 >
                   <div className="flex items-start gap-3">
-                    {/* Circle Avatar */}
                     <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0 uppercase shadow-xs">
                       {user.avatarUrl || user.nome.charAt(0)}
                     </div>
@@ -379,9 +717,8 @@ export default function UserManagement({
                     </span>
 
                     <div className="flex items-center gap-1.5 font-sans">
-                      {/* Show context indicator. Implemented absolute login isolation in user area */}
                       {isSelected ? (
-                        <span className="text-[9px] bg-emerald-55 border border-emerald-250 text-emerald-800 font-black px-2 py-1 rounded-lg flex items-center gap-1">
+                        <span className="text-[9px] bg-emerald-50 border border-emerald-250 text-emerald-800 font-black px-2 py-1 rounded-lg flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3 text-emerald-600" /> LOGADO ATUALMENTE
                         </span>
                       ) : (
@@ -390,7 +727,6 @@ export default function UserManagement({
                         </span>
                       )}
 
-                      {/* Edit actions (Admin only) */}
                       {isAdmin && (
                         <>
                           <button

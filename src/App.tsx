@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Booking, SystemUser, ToastMessage } from "./types";
-import { INITIAL_BOOKINGS, USUARIOS_PREDEFINIDOS } from "./data";
+import { Booking, SystemUser, ToastMessage, Sector, Equipment } from "./types";
 import BookingStats from "./components/BookingStats";
 import BookingTable from "./components/BookingTable";
 import BookingCalendar from "./components/BookingCalendar";
@@ -17,22 +16,20 @@ import {
   ShieldAlert, 
   Sparkles, 
   Info,
-  Layers,
-  ArrowRight,
-  MapPin,
-  Clock,
-  Download,
-  PlusCircle,
-  TrendingUp,
-  Cpu,
-  User,
-  ExternalLink,
+  Sun,
+  Moon,
   Users,
   LogOut,
-  ShieldAlert as Lock,
-  Sun,
-  Moon
+  Download
 } from "lucide-react";
+
+function parseTimeToMinutes(tStr: string): number {
+  if (!tStr) return 0;
+  const parts = tStr.split(":");
+  const h = parseInt(parts[0], 10) || 0;
+  const m = parseInt(parts[1], 10) || 0;
+  return h * 60 + m;
+}
 
 // Helper to automatically finalize bookings that have completed their scheduled time
 export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedList: Booking[], changed: boolean } => {
@@ -61,9 +58,20 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
     return b;
   });
   return { updatedList, changed };
-};export default function App() {
+};
+
+export default function App() {
   const [users, setUsers] = useState<SystemUser[]>([]);
-  const [currentUser, setCurrentUser] = useState<SystemUser>(USUARIOS_PREDEFINIDOS[0]);
+  const [sectors, setSectors] = useState<Sector[]>([]);
+  const [equipments, setEquipments] = useState<Equipment[]>([]);
+  
+  const [currentUser, setCurrentUser] = useState<SystemUser>({
+    id: "",
+    nome: "Carregando...",
+    email: "",
+    role: "Usuário Padrão",
+    setor: "TI"
+  });
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [activeTab, setActiveTab] = useState<"spreadsheet" | "calendar" | "dashboard" | "users" >("spreadsheet");
@@ -118,10 +126,28 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
     localStorage.setItem("theme", theme);
   }, [theme]);
 
+  // Helper to construct request headers
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem("auth_token") || "";
+    return {
+      "Authorization": `Bearer ${token}`
+    };
+  };
+
+  const getHeadersAndBodyType = () => {
+    const token = localStorage.getItem("auth_token") || "";
+    return {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    };
+  };
+
   // Load users from Backend API
   const fetchUsers = async () => {
     try {
-      const res = await fetch("/api/users");
+      const res = await fetch("/api/users", {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
         setUsers(data);
@@ -131,8 +157,6 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
         const found = data.find((u: SystemUser) => u.id === savedActiveUserId);
         if (found) {
           setCurrentUser(found);
-        } else if (data.length > 0) {
-          setCurrentUser(data[0]);
         }
       }
     } catch (e) {
@@ -140,10 +164,42 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
     }
   };
 
+  // Load sectors from Backend API
+  const fetchSectors = async () => {
+    try {
+      const res = await fetch("/api/sectors", {
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSectors(data);
+      }
+    } catch (e) {
+      console.error("Erro ao carregar setores:", e);
+    }
+  };
+
+  // Load equipments from Backend API
+  const fetchEquipments = async () => {
+    try {
+      const res = await fetch("/api/equipments", {
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEquipments(data);
+      }
+    } catch (e) {
+      console.error("Erro ao carregar equipamentos:", e);
+    }
+  };
+
   // Load bookings from Backend API
   const fetchBookings = async () => {
     try {
-      const res = await fetch("/api/bookings");
+      const res = await fetch("/api/bookings", {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
         setBookings(data);
@@ -155,21 +211,36 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
 
   // Load data on boot
   useEffect(() => {
-    fetchUsers();
-    fetchBookings();
-
     const loggedInVal = localStorage.getItem("is_logged_in") === "true";
-    setIsLoggedIn(loggedInVal);
+    const token = localStorage.getItem("auth_token");
+    if (loggedInVal && token) {
+      setIsLoggedIn(true);
+      fetchUsers();
+      fetchBookings();
+      fetchSectors();
+      fetchEquipments();
+    } else {
+      setIsLoggedIn(false);
+    }
   }, []);
 
-  // Periodic background check to fetch real-time updates from database in the background
+  // Periodic background check to fetch real-time updates
   useEffect(() => {
+    if (!isLoggedIn) return;
+
     const interval = setInterval(() => {
       fetchBookings();
     }, 15000); // Check every 15 seconds
 
     return () => clearInterval(interval);
-  }, []);
+  }, [isLoggedIn]);
+
+  // Safe redirect if regular user attempts to open Users tab
+  useEffect(() => {
+    if (isLoggedIn && currentUser.id && currentUser.role !== "Administrador" && activeTab === "users") {
+      setActiveTab("spreadsheet");
+    }
+  }, [activeTab, currentUser, isLoggedIn]);
 
   // Save user changes callback to Express API
   const handleSaveUser = async (user: SystemUser) => {
@@ -179,24 +250,30 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
       if (exists) {
         res = await fetch(`/api/users/${user.id}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: getHeadersAndBodyType(),
           body: JSON.stringify(user)
         });
       } else {
         res = await fetch(`/api/users`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getHeadersAndBodyType(),
           body: JSON.stringify(user)
         });
       }
 
       if (res.ok) {
+        const savedData = await res.json();
         addToast(
           "success", 
           "Operação realizada com sucesso", 
           exists ? `Os dados do usuário "${user.nome}" foram alterados.` : `O usuário "${user.nome}" foi cadastrado com sucesso.`
         );
         fetchUsers();
+        
+        // If changed current logged-in profile, update state
+        if (currentUser.id === user.id) {
+          setCurrentUser(savedData);
+        }
       } else {
         const errData = await res.json();
         addToast("error", "Erro ao salvar usuário", errData.error || "Campos inválidos ou email duplicado.");
@@ -210,16 +287,15 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
   const handleDeleteUser = async (id: string) => {
     try {
       const res = await fetch(`/api/users/${id}`, {
-        method: "DELETE"
+        method: "DELETE",
+        headers: getAuthHeaders()
       });
       if (res.ok) {
         addToast("success", "Deletado!", "Usuário removido.");
         fetchUsers();
         
         if (currentUser.id === id) {
-          localStorage.removeItem("active_user_id");
-          localStorage.removeItem("is_logged_in");
-          setIsLoggedIn(false);
+          handleLogout();
         }
       } else {
         const errData = await res.json();
@@ -230,48 +306,54 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
     }
   };
 
-  // Switch active user simulation
-  const handleSelectUser = (user: SystemUser) => {
-    setCurrentUser(user);
-    localStorage.setItem("active_user_id", user.id);
-  };
-
-  const handleLoginSuccess = (user: SystemUser) => {
+  const handleLoginSuccess = (user: SystemUser, token: string) => {
     setCurrentUser(user);
     setIsLoggedIn(true);
     localStorage.setItem("active_user_id", user.id);
     localStorage.setItem("is_logged_in", "true");
+    localStorage.setItem("auth_token", token);
+    
+    // Load fresh data
+    fetchUsers();
+    fetchBookings();
+    fetchSectors();
+    fetchEquipments();
   };
 
   const handleLogout = () => {
     setIsLoggedIn(false);
     localStorage.removeItem("is_logged_in");
+    localStorage.removeItem("active_user_id");
+    localStorage.removeItem("auth_token");
   };
 
-  // Add / Edit Booking save transaction handler with backend synchronization
-  const handleSaveBooking = async (booking: Booking) => {
+  // Add / Edit Booking save transaction handler
+  const handleSaveBooking = async (booking: Booking & { deSectorsAuto?: string; deEquipmentsIds?: any[] }) => {
     const exists = bookings.some((b) => b.id === booking.id);
     
-    // Check permission to cancel if it's an existing booking being updated to "Cancelado"
-    if (exists && booking.situacao === "Cancelado") {
+    // Check permission to cancel or edit
+    if (exists) {
       const targetB = bookings.find((b) => b.id === booking.id);
-      if (targetB && targetB.situacao !== "Cancelado") {
+      if (targetB) {
         const isOwner = targetB.usuarioId === currentUser.id || targetB.responsavel.toLowerCase().trim() === currentUser.nome.toLowerCase().trim();
         const isAdmin = currentUser.role === "Administrador";
         if (!isOwner && !isAdmin) {
           addToast(
             "error",
             "Permissão Negada",
-            "Apenas quem fez o agendamento ou o administrador pode cancelar esta reserva."
+            "Apenas quem fez o agendamento ou o administrador pode modificar esta reserva."
           );
           return;
         }
       }
     }
 
+    const { deSectorsAuto, deEquipmentsIds, ...cleanBooking } = booking;
+
     const finalBooking = {
-      ...booking,
-      usuarioId: booking.usuarioId || (booking.id ? undefined : currentUser.id), // bind current user's ID for new bookings
+      ...cleanBooking,
+      usuarioId: booking.usuarioId || (booking.id ? undefined : currentUser.id),
+      equipamentosSolicitados: deEquipmentsIds || []
     };
 
     try {
@@ -279,13 +361,13 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
       if (exists) {
         res = await fetch(`/api/bookings/${booking.id}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: getHeadersAndBodyType(),
           body: JSON.stringify(finalBooking)
         });
       } else {
         res = await fetch(`/api/bookings`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getHeadersAndBodyType(),
           body: JSON.stringify(finalBooking)
         });
       }
@@ -299,6 +381,7 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
             : `Seu agendamento para a sala "${booking.sala}" foi registrado para o dia ${booking.data.split("-").reverse().join("/")}!`
         );
         fetchBookings();
+        fetchEquipments(); // refresh available counts
         setIsFormOpen(false);
         setEditingBooking(null);
       } else {
@@ -310,7 +393,7 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
     }
   };
 
-  // Quick state update shortcut with remote backend collision/overlap checks
+  // Quick state update shortcut
   const handleUpdateStatus = async (id: string, status: "Finalizado" | "Confirmado" | "Cancelado") => {
     const targetB = bookings.find((b) => b.id === id);
     if (targetB) {
@@ -318,11 +401,11 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
       const isAdmin = currentUser.role === "Administrador";
 
       // Permission check for cancel action
-      if (status === "Cancelado" && !isOwner && !isAdmin) {
+      if (!isOwner && !isAdmin) {
         addToast(
           "error",
           "Permissão Negada",
-          "Apenas quem fez o agendamento ou o administrador pode cancelar esta reserva."
+          "Apenas quem fez o agendamento ou o administrador pode alterar o status desta reserva."
         );
         return;
       }
@@ -330,7 +413,7 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
       try {
         const res = await fetch(`/api/bookings/${id}/status`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: getHeadersAndBodyType(),
           body: JSON.stringify({ situacao: status })
         });
 
@@ -341,12 +424,13 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
             `A reserva de ${targetB.responsavel} foi alterada para "${status}" com sucesso.`
           );
           fetchBookings();
+          fetchEquipments();
         } else {
           const errData = await res.json();
           addToast(
             "warning",
             "Não foi possível salvar",
-            errData.error || "Houve um conflito e a reserva não pôde ser ativa."
+            errData.error || "Houve um conflito e a reserva não pôde ser salva."
           );
         }
       } catch (e) {
@@ -359,13 +443,15 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
   const handleDeleteBooking = async (id: string) => {
     try {
       const res = await fetch(`/api/bookings/${id}`, {
-        method: "DELETE"
+        method: "DELETE",
+        headers: getAuthHeaders()
       });
       if (res.ok) {
         addToast("success", "Excluído", "O agendamento foi removido.");
         fetchBookings();
+        fetchEquipments();
       } else {
-        addToast("error", "Erro", "Não foi possível excluir o agendamento desde o servidor.");
+        addToast("error", "Erro", "Não foi possível excluir o agendamento.");
       }
     } catch (e) {
       addToast("error", "Erro de Conexão", "Houve uma falha ao enviar o comando.");
@@ -377,7 +463,7 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
     const duplicated: Booking = {
       ...booking,
       id: "", // clear ID so it registers as brand new
-      data: new Date().toISOString().split("T")[0], // default to today so they pick a new hour/date
+      data: new Date().toISOString().split("T")[0], // default to today
     };
     setEditingBooking(duplicated);
     setIsFormOpen(true);
@@ -393,7 +479,7 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
       sala: "Sala de reuniões 2",
       tempoDeUso: "1:30hs",
       pessoas: "",
-      responsavel: "",
+      responsavel: currentUser.nome,
       equipamentos: "Sem material",
       motivo: "",
       situacao: "Confirmado",
@@ -465,17 +551,10 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
           const s2 = b2.horaInicial;
           const e2 = b2.horaFinal || b2.horaInicial;
           
-          const parseTime = (t: string) => {
-            const parts = t.split(":").map(Number);
-            const h = parts[0] || 0;
-            const m = parts[1] || 0;
-            return h * 60 + m;
-          };
-          
-          const s1Min = parseTime(s1);
-          const e1Min = parseTime(e1);
-          const s2Min = parseTime(s2);
-          const e2Min = parseTime(e2);
+          const s1Min = parseTimeToMinutes(s1);
+          const e1Min = parseTimeToMinutes(e1);
+          const s2Min = parseTimeToMinutes(s2);
+          const e2Min = parseTimeToMinutes(e2);
           
           if (s1Min < e2Min && e1Min > s2Min) {
             count++;
@@ -490,7 +569,6 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
 
   // Get next 3 upcoming reservations sorted by date (excluding Canceled)
   const nextReservations = useMemo(() => {
-    const todayStr = new Date().toISOString().split("T")[0];
     return bookings
       .filter((b) => b.situacao !== "Cancelado")
       .sort((a, b) => a.data.localeCompare(b.data) || a.horaInicial.localeCompare(b.horaInicial))
@@ -503,13 +581,12 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
     const day = now.getDate();
     const month = now.toLocaleDateString("pt-BR", { month: "long" });
     const year = now.getFullYear();
-    // Capitalize first letter of month
     const capMonth = month.charAt(0).toUpperCase() + month.slice(1);
     return `${day} de ${capMonth}, ${year}`;
   };
 
   if (!isLoggedIn) {
-    return <LoginScreen users={users} onLoginSuccess={handleLoginSuccess} />;
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
   }
 
   return (
@@ -518,13 +595,13 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
       {/* Dynamic Bento Style Container */}
       <div className="w-full max-w-[1240px] mx-auto p-4 md:p-6 lg:p-8 flex-grow flex flex-col gap-6">
         
-        {/* Header Section (Exactly matching Design HTML aesthetic for SALA-SYNC) */}
+        {/* Header Section */}
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end pb-2 gap-4">
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-3xl font-black text-slate-900 tracking-tight">SALA-SYNC</h1>
               <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full uppercase tracking-widest">
-                v1.2.0
+                v1.4.0
               </span>
             </div>
             <p className="text-slate-500 font-semibold text-sm">
@@ -568,7 +645,7 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
           </div>
         </header>
 
-        {/* Dynamic Warning Alert: Conflicts (Styled as a sleek warning card) */}
+        {/* Dynamic Warning Alert: Conflicts */}
         {currentConflicts > 0 && (
           <div className="bg-amber-50 border border-amber-200 text-amber-950 p-4 rounded-3xl flex gap-3 shadow-xs animate-slide-in">
             <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
@@ -582,7 +659,7 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
           </div>
         )}
 
-        {/* Top Bento Dashboard Ribbon (Displays statistics & quick actions at the top of everything) */}
+        {/* Top Bento Dashboard Ribbon */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           
           {/* Card 1: Main statistics trigger */}
@@ -639,7 +716,7 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
             </div>
           </div>
 
-          {/* Card 3: Quick Action/New Booking (Aesthetic Quick Action block from spec) */}
+          {/* Card 3: Quick Action/New Booking */}
           <div 
             onClick={handleAddNewClick}
             className="bg-slate-900 hover:bg-slate-850 rounded-3xl p-5 text-white flex flex-col justify-center items-center gap-2 cursor-pointer shadow-xs transition-all hover:scale-102 active:scale-98"
@@ -691,21 +768,23 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
             Painel Analítico
           </button>
 
-          <button
-            onClick={() => setActiveTab("users")}
-            className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
-              activeTab === "users"
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/80"
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            Setor de TI & Usuários
-          </button>
+          {currentUser.role === "Administrador" && (
+            <button
+              onClick={() => setActiveTab("users")}
+              className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+                activeTab === "users"
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/80"
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              Setor de TI & Cadastros
+            </button>
+          )}
 
           <button
             onClick={handleExportCSV}
-            className="py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider text-slate-555 border border-slate-200 bg-white hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5"
+            className="py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5"
             title="Sincronizar e baixar arquivo excel"
           >
             <Download className="w-4 h-4" />
@@ -713,7 +792,7 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
           </button>
         </div>
 
-        {/* Main Content Area - Bento View panel */}
+        {/* Main Content Area */}
         <div className="flex-grow flex flex-col">
           {activeTab === "spreadsheet" && (
             <div className="bg-white rounded-3xl border border-slate-200 p-1 shadow-xs overflow-hidden flex flex-col">
@@ -755,17 +834,15 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
 
           {activeTab === "dashboard" && (
             <div className="space-y-6">
-              {/* Statistical components structured inside Bento Layout */}
               <BookingStats bookings={bookings} />
               
-              {/* Informative Guidance card */}
               <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs flex flex-col sm:flex-row gap-4 items-start">
                 <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
                   <Info className="w-6 h-6" />
                 </div>
                 <div>
                   <h4 className="font-extrabold text-slate-800 text-sm uppercase tracking-wider">Diretrizes de Compartilhamento de Salas</h4>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  <p className="text-xs text-slate-505 mt-1 leading-relaxed">
                     Esse painel reflete o processamento de dados integrados de recursos e reservas. Caso haja necessidade de 
                     exclusão de registros em massa, utilize o modo checkbox disponível na visualização da tabela. 
                     Reservas canceladas são desconsideradas nas estatísticas de taxa de ocupação para fornecer informações de KPI fidedignas.
@@ -775,14 +852,17 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
             </div>
           )}
 
-          {activeTab === "users" && (
+          {activeTab === "users" && currentUser.role === "Administrador" && (
             <UserManagement
               users={users}
+              sectors={sectors}
+              equipments={equipments}
               bookings={bookings}
               currentUser={currentUser}
               onSaveUser={handleSaveUser}
               onDeleteUser={handleDeleteUser}
-              onSelectUser={handleSelectUser}
+              onRefreshSectors={fetchSectors}
+              onRefreshEquipments={fetchEquipments}
             />
           )}
         </div>
@@ -796,6 +876,7 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
           allBookings={bookings}
           currentUser={currentUser}
           users={users}
+          equipments={equipments}
           onSave={handleSaveBooking}
           onClose={() => {
             setIsFormOpen(false);

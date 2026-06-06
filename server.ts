@@ -16,7 +16,10 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Helper to time parse
+// In-memory session store
+const sessions = new Map<string, { userId: string; role: string; nome: string; email: string; setor: string }>();
+
+// Helper to parse time string to minutes
 function parseTimeToMinutes(tStr: string): number {
   if (!tStr) return 0;
   const parts = tStr.split(":");
@@ -25,7 +28,35 @@ function parseTimeToMinutes(tStr: string): number {
   return h * 60 + m;
 }
 
-// Auto-finalize bookings that are past their end schedules in the database
+// Authentication Middleware
+function getSessionUser(req: express.Request) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.substring(7);
+    return sessions.get(token);
+  }
+  return null;
+}
+
+const authenticate: express.RequestHandler = (req: any, res, next) => {
+  const user = getSessionUser(req);
+  if (!user) {
+    return res.status(401).json({ error: "Sessão não autenticada. Por favor, faça login." });
+  }
+  req.user = user;
+  next();
+};
+
+const requireAdmin: express.RequestHandler = (req: any, res, next) => {
+  authenticate(req, res, () => {
+    if (req.user.role !== "Administrador") {
+      return res.status(403).json({ error: "Acesso negado: Apenas administradores do Setor de TI podem realizar esta operação." });
+    }
+    next();
+  });
+};
+
+// Auto-finalize bookings that are past their scheduled end times in the database
 async function runAutoFinalizer() {
   const now = new Date();
   try {
@@ -41,7 +72,6 @@ async function runAutoFinalizer() {
       const [year, month, day] = b.data.split("-").map(Number);
       const [hours, minutes] = timeStr.split(":").map(Number);
       
-      // Compute correct date comparison matching scheduler input local timezone
       const bookingEnd = new Date(year, month - 1, day, hours, minutes, 0, 0);
       
       if (now > bookingEnd) {
@@ -60,30 +90,128 @@ async function runAutoFinalizer() {
   }
 }
 
-// Periodic check every 15 seconds
+// Check every 15 seconds
 setInterval(runAutoFinalizer, 15000);
 
-// Bootstrap database with Admin and template rooms
+// Helper function to check equipment availability conflicts
+async function getEquipmentConflict(
+  bookingId: string | undefined,
+  data: string,
+  horaInicial: string,
+  horaFinal: string,
+  requestedReqs: { equipmentId: string; quantidade: number }[]
+): Promise<{ error?: string; conflictBooking?: any } | null> {
+  const startMin = parseTimeToMinutes(horaInicial);
+  const endMin = parseTimeToMinutes(horaFinal);
+
+  for (const reqEq of requestedReqs) {
+    if (reqEq.quantidade <= 0) continue;
+
+    const eqItem = await prisma.equipment.findUnique({ where: { id: reqEq.equipmentId } });
+    if (!eqItem) continue;
+    if (!eqItem.ativo) {
+      return { error: `O equipamento "${eqItem.nome}" está desativado no momento e não pode ser solicitado.` };
+    }
+
+    // Find all overlapping confirmed bookings on the same date
+    const overlappingBookings = await prisma.booking.findMany({
+      where: {
+        data,
+        situacao: "Confirmado",
+        NOT: bookingId ? { id: bookingId } : undefined
+      },
+      include: {
+        equipmentsRequested: {
+          include: {
+            equipment: true
+          }
+        }
+      }
+    });
+
+    let concurrentAllocated = 0;
+    let conflictBooking: any = null;
+
+    for (const b of overlappingBookings) {
+      const otherStart = parseTimeToMinutes(b.horaInicial);
+      const otherEnd = parseTimeToMinutes(b.horaFinal);
+
+      if (startMin < otherEnd && endMin > otherStart) {
+        const match = b.equipmentsRequested.find(er => er.equipmentId === reqEq.equipmentId);
+        if (match) {
+          concurrentAllocated += match.quantidade;
+          conflictBooking = b;
+        }
+      }
+    }
+
+    if (concurrentAllocated + reqEq.quantidade > eqItem.quantidade) {
+      const conflictMsg = conflictBooking 
+        ? `na reserva de "${conflictBooking.responsavel}" das ${conflictBooking.horaInicial} às ${conflictBooking.horaFinal}`
+        : "em reserva concomitante";
+      return {
+        error: `O equipamento "${eqItem.nome}" não está disponível na quantidade solicitada para este período. Restam apenas ${eqItem.quantidade - concurrentAllocated} de ${eqItem.quantidade} unidades disponíveis (conflito ${conflictMsg}).`,
+        conflictBooking
+      };
+    }
+  }
+  return null;
+}
+
+// Bootstrap database with default categories, users and equipments
 async function bootstrap() {
   try {
-    // 1. Admin
+    // 1. Seed Sectors
+    const sectorCount = await prisma.sector.count();
+    const defaultSectors = ["TI", "Qualidade", "Faturamento", "Fisioterapia", "Enfermagem", "Financeiro", "Recursos Humanos", "Diretoria"];
+    if (sectorCount === 0) {
+      for (const name of defaultSectors) {
+        await prisma.sector.create({ data: { nome: name } });
+      }
+      console.log("[Bootstrap] Setores padrão criados.");
+    }
+
+    // Retrieve default sector reference
+    const tiSector = await prisma.sector.findUnique({ where: { nome: "TI" } });
+    const tiSectorId = tiSector ? tiSector.id : null;
+
+    // 2. Admin & Default Users
     const adminCount = await prisma.user.count({ where: { email: "admin@sala-sync.com" } });
     if (adminCount === 0) {
       await prisma.user.create({
         data: {
           id: "user-admin",
-          nome: "admin",
+          nome: "Admin",
           email: "admin@sala-sync.com",
           senha: "123456",
           role: "Administrador",
           setor: "TI",
+          setorId: tiSectorId,
           avatarUrl: "AD"
         }
       });
-      console.log("[Bootstrap] Usuário Administrador padrão criado com sucesso.");
+      console.log("[Bootstrap] Usuário Administrador de teste criado.");
     }
 
-    // 2. Rooms
+    // Fix other users missing sector relationship
+    const unlinkedUsers = await prisma.user.findMany({ where: { setorId: null } });
+    for (const u of unlinkedUsers) {
+      const match = await prisma.sector.findUnique({ where: { nome: u.setor } });
+      if (match) {
+        await prisma.user.update({
+          where: { id: u.id },
+          data: { setorId: match.id }
+        });
+      } else {
+        // Link to general TI
+        await prisma.user.update({
+          where: { id: u.id },
+          data: { setorId: tiSectorId }
+        });
+      }
+    }
+
+    // 3. Seed Rooms
     const roomCount = await prisma.room.count();
     if (roomCount === 0) {
       const defaultRooms = [
@@ -120,25 +248,94 @@ async function bootstrap() {
       for (const room of defaultRooms) {
         await prisma.room.create({ data: room });
       }
-      console.log("[Bootstrap] Salas iniciais criadas com sucesso.");
+      console.log("[Bootstrap] Salas iniciais criadas.");
+    }
+
+    // 4. Seed Equipments
+    const eqCount = await prisma.equipment.count();
+    if (eqCount === 0) {
+      await prisma.equipment.create({
+        data: {
+          nome: "Projetor / Datashow",
+          quantidade: 1,
+          ativo: true
+        }
+      });
+      console.log("[Bootstrap] Equipamento padrão 'Projetor / Datashow' criado.");
     }
   } catch (err) {
     console.error("Erro durante o bootstrap do banco de dados:", err);
   }
 }
 
-// Trigger initial bootstrap
+// Launch bootstrap
 bootstrap();
 
 /* -------------------------------------------------------------
- * API ROUTING - USER MANAGEMENT
+ * API ROUTING - SECURITY AUTHENTICATION
+ * ------------------------------------------------------------- */
+
+// AUTHENTICATION LOGIN (Accepts email & senha)
+app.post("/api/login", async (req, res) => {
+  const { email, senha } = req.body;
+  if (!email || !senha) {
+    return res.status(400).json({ error: "E-mail ou senha ausentes" });
+  }
+
+  try {
+    const user = await prisma.user.findFirst({
+      where: { email: email.toLowerCase().trim() }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "Nenhum usuário cadastrado com este e-mail." });
+    }
+
+    if (user.senha !== senha) {
+      return res.status(401).json({ error: "Sua senha de acesso está incorreta. Tente novamente." });
+    }
+
+    const token = "session-" + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
+    sessions.set(token, {
+      userId: user.id,
+      role: user.role,
+      nome: user.nome,
+      email: user.email,
+      setor: user.setor
+    });
+
+    res.json({
+      user: {
+        id: user.id,
+        nome: user.nome,
+        email: user.email,
+        role: user.role,
+        setor: user.setor,
+        setorId: user.setorId,
+        avatarUrl: user.avatarUrl
+      },
+      token
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Erro no serviço de login" });
+  }
+});
+
+// GET Authenticated profile session details
+app.get("/api/me", authenticate, (req: any, res) => {
+  res.json(req.user);
+});
+
+/* -------------------------------------------------------------
+ * API ROUTING - USER MANAGEMENT (Admin Protected)
  * ------------------------------------------------------------- */
 
 // GET All Users
-app.get("/api/users", async (req, res) => {
+app.get("/api/users", authenticate, async (req, res) => {
   try {
     const usersList = await prisma.user.findMany({
-      orderBy: { nome: "asc" }
+      orderBy: { nome: "asc" },
+      include: { setorRel: true }
     });
     res.json(usersList);
   } catch (err) {
@@ -147,25 +344,31 @@ app.get("/api/users", async (req, res) => {
 });
 
 // CREATE User
-app.post("/api/users", async (req, res) => {
-  const { nome, email, senha, role, setor, avatarUrl } = req.body;
-  if (!nome || !email || !senha || !role || !setor) {
-    return res.status(400).json({ error: "Campos obrigatórios ausentes" });
+app.post("/api/users", requireAdmin, async (req, res) => {
+  const { nome, email, senha, role, setorId, avatarUrl } = req.body;
+  if (!nome || !email || !senha || !role || !setorId) {
+    return res.status(400).json({ error: "Campos obrigatórios ausentes (Nome, E-mail, Senha, Cargo e Setor)." });
   }
 
   try {
-    const duplicate = await prisma.user.findUnique({ where: { email } });
+    const duplicate = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
     if (duplicate) {
       return res.status(400).json({ error: "Este endereço de email já está cadastrado por outro usuário!" });
+    }
+
+    const sector = await prisma.sector.findUnique({ where: { id: setorId } });
+    if (!sector) {
+      return res.status(400).json({ error: "O setor selecionado é inválido ou não existe." });
     }
 
     const newUser = await prisma.user.create({
       data: {
         nome,
-        email,
+        email: email.toLowerCase().trim(),
         senha,
         role,
-        setor,
+        setor: sector.nome,
+        setorId: sector.id,
         avatarUrl: avatarUrl || "US"
       }
     });
@@ -176,35 +379,60 @@ app.post("/api/users", async (req, res) => {
 });
 
 // UPDATE User
-app.put("/api/users/:id", async (req, res) => {
+app.put("/api/users/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const { nome, email, senha, role, setor, avatarUrl } = req.body;
+  const { nome, email, senha, role, setorId, avatarUrl } = req.body;
 
   try {
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) {
-      return res.status(404).json({ error: "Usuário não localizado" });
+      return res.status(404).json({ error: "Usuário não localizado." });
     }
 
-    // Check duplicate email (if changing email)
-    if (email && email !== existing.email) {
-      const duplicate = await prisma.user.findUnique({ where: { email } });
+    if (email && email.toLowerCase().trim() !== existing.email) {
+      const duplicate = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
       if (duplicate) {
         return res.status(400).json({ error: "Este endereço de email já está sendo utilizado por outro usuário." });
       }
+    }
+
+    let sectorName = existing.setor;
+    let finalSectorId = existing.setorId;
+    if (setorId && setorId !== existing.setorId) {
+      const sector = await prisma.sector.findUnique({ where: { id: setorId } });
+      if (!sector) {
+        return res.status(400).json({ error: "O setor selecionado é inválido ou não existe." });
+      }
+      sectorName = sector.nome;
+      finalSectorId = sector.id;
     }
 
     const updatedUser = await prisma.user.update({
       where: { id },
       data: {
         nome: nome ?? existing.nome,
-        email: email ?? existing.email,
+        email: email ? email.toLowerCase().trim() : existing.email,
         senha: senha ?? existing.senha,
         role: role ?? existing.role,
-        setor: setor ?? existing.setor,
+        setor: sectorName,
+        setorId: finalSectorId,
         avatarUrl: avatarUrl ?? existing.avatarUrl
       }
     });
+
+    // Update active in-memory sessions if the edited user has one
+    for (const [key, sess] of sessions.entries()) {
+      if (sess.userId === id) {
+        sessions.set(key, {
+          ...sess,
+          nome: updatedUser.nome,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          setor: updatedUser.setor
+        });
+      }
+    }
+
     res.json(updatedUser);
   } catch (err) {
     res.status(500).json({ error: "Erro ao atualizar usuário" });
@@ -212,7 +440,7 @@ app.put("/api/users/:id", async (req, res) => {
 });
 
 // DELETE User
-app.delete("/api/users/:id", async (req, res) => {
+app.delete("/api/users/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
   if (id === "user-admin") {
     return res.status(403).json({ error: "Não é permitido excluir o usuário Administrador principal!" });
@@ -220,45 +448,198 @@ app.delete("/api/users/:id", async (req, res) => {
 
   try {
     await prisma.user.delete({ where: { id } });
+    // Remove session if logged in
+    for (const [token, value] of sessions.entries()) {
+      if (value.userId === id) {
+        sessions.delete(token);
+      }
+    }
     res.json({ message: "Usuário deletado com sucesso" });
   } catch (err) {
     res.status(500).json({ error: "Erro ao deletar usuário" });
   }
 });
 
-// POST Auth Login Validate
-app.post("/api/login", async (req, res) => {
-  const { userId, senha } = req.body;
-  if (!userId || !senha) {
-    return res.status(400).json({ error: "Usuário ou senha ausentes" });
-  }
 
+/* -------------------------------------------------------------
+ * API ROUTING - SECTORS (Admin Secured Writes)
+ * ------------------------------------------------------------- */
+
+// GET All Sectors
+app.get("/api/sectors", authenticate, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      return res.status(404).json({ error: "Usuário não encontrado." });
-    }
-
-    if (user.senha !== senha) {
-      return res.status(401).json({ error: `Senha inválida para o usuário "${user.nome}".` });
-    }
-
-    res.json(user);
+    const list = await prisma.sector.findMany({ orderBy: { nome: "asc" } });
+    res.json(list);
   } catch (err) {
-    res.status(500).json({ error: "Erro no serviço de autenticação" });
+    res.status(500).json({ error: "Erro ao listar setores" });
   }
 });
 
+// CREATE Sector (Admin only)
+app.post("/api/sectors", requireAdmin, async (req, res) => {
+  const { nome } = req.body;
+  if (!nome || !nome.trim()) {
+    return res.status(400).json({ error: "O nome do setor é obrigatório." });
+  }
+  try {
+    const existing = await prisma.sector.findUnique({ where: { nome: nome.trim() } });
+    if (existing) {
+      return res.status(400).json({ error: "Setor já cadastrado com este nome!" });
+    }
+    const newSector = await prisma.sector.create({ data: { nome: nome.trim() } });
+    res.json(newSector);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao cadastrar setor." });
+  }
+});
+
+// UPDATE Sector (Admin only)
+app.put("/api/sectors/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { nome } = req.body;
+  if (!nome || !nome.trim()) {
+    return res.status(400).json({ error: "O nome do setor é obrigatório." });
+  }
+  try {
+    const existing = await prisma.sector.findUnique({ where: { nome: nome.trim() } });
+    if (existing && existing.id !== id) {
+      return res.status(400).json({ error: "Já existe outro setor cadastrado com este mesmo nome." });
+    }
+    const updated = await prisma.sector.update({
+      where: { id },
+      data: { nome: nome.trim() }
+    });
+    // Propagate changes to user sectors string
+    await prisma.user.updateMany({
+      where: { setorId: id },
+      data: { setor: nome.trim() }
+    });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao atualizar setor." });
+  }
+});
+
+// DELETE Sector (Admin only)
+app.delete("/api/sectors/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const userCount = await prisma.user.count({ where: { setorId: id } });
+    if (userCount > 0) {
+      return res.status(400).json({ error: "Não é permitido excluir o setor, pois existem usuários vinculados a ele." });
+    }
+    await prisma.sector.delete({ where: { id } });
+    res.json({ message: "Setor removido com sucesso." });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao excluir setor." });
+  }
+});
+
+
 /* -------------------------------------------------------------
- * API ROUTING - BOOKINGS
+ * API ROUTING - EQUIPMENT CONTROL (Admin Secured Writes)
+ * ------------------------------------------------------------- */
+
+// GET All Equipments
+app.get("/api/equipments", authenticate, async (req, res) => {
+  try {
+    const list = await prisma.equipment.findMany({ orderBy: { nome: "asc" } });
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao listar equipamentos." });
+  }
+});
+
+// CREATE Equipment (Admin only)
+app.post("/api/equipments", requireAdmin, async (req, res) => {
+  const { nome, quantidade, ativo } = req.body;
+  if (!nome || typeof quantidade !== "number" || quantidade < 0) {
+    return res.status(400).json({ error: "Nome e quantidade do equipamento válidos são necessários." });
+  }
+  try {
+    const existing = await prisma.equipment.findFirst({ where: { nome: { equals: nome.trim() } } });
+    if (existing) {
+      return res.status(400).json({ error: "Já existe um equipamento cadastrado com este nome!" });
+    }
+    const newEq = await prisma.equipment.create({
+      data: {
+        nome: nome.trim(),
+        quantidade,
+        ativo: ativo ?? true
+      }
+    });
+    res.json(newEq);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao cadastrar equipamento." });
+  }
+});
+
+// UPDATE Equipment (Admin only)
+app.put("/api/equipments/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { nome, quantidade, ativo } = req.body;
+
+  try {
+    const eq = await prisma.equipment.findUnique({ where: { id } });
+    if (!eq) {
+      return res.status(404).json({ error: "Equipamento não localizado." });
+    }
+
+    const data: any = {};
+    if (nome) {
+      const existing = await prisma.equipment.findFirst({ where: { nome: { equals: nome.trim() }, NOT: { id } } });
+      if (existing) {
+        return res.status(400).json({ error: "Já existe outro equipamento cadastrado com este nome." });
+      }
+      data.nome = nome.trim();
+    }
+    if (typeof quantidade === "number") {
+      if (quantidade < 0) return res.status(400).json({ error: "A quantidade deve ser maior ou igual a zero." });
+      data.quantidade = quantidade;
+    }
+    if (typeof ativo === "boolean") {
+      data.ativo = ativo;
+    }
+
+    const updated = await prisma.equipment.update({
+      where: { id },
+      data
+    });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao atualizar equipamento." });
+  }
+});
+
+// DELETE Equipment (Admin only)
+app.delete("/api/equipments/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await prisma.equipment.delete({ where: { id } });
+    res.json({ message: "Equipamento removido com sucesso." });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao excluir equipamento." });
+  }
+});
+
+
+/* -------------------------------------------------------------
+ * API ROUTING - BOOKINGS (Authenticated Protected)
  * ------------------------------------------------------------- */
 
 // GET All Bookings (including auto-finalization check on fly)
-app.get("/api/bookings", async (req, res) => {
+app.get("/api/bookings", authenticate, async (req, res) => {
   try {
     await runAutoFinalizer();
     const bookings = await prisma.booking.findMany({
-      orderBy: { data: "desc" }
+      orderBy: { data: "desc" },
+      include: {
+        equipmentsRequested: {
+          include: {
+            equipment: true
+          }
+        }
+      }
     });
     res.json(bookings);
   } catch (err) {
@@ -266,8 +647,8 @@ app.get("/api/bookings", async (req, res) => {
   }
 });
 
-// CREATE Booking with backend overlap control
-app.post("/api/bookings", async (req, res) => {
+// CREATE Booking with backend overlap & equipment constraints check
+app.post("/api/bookings", authenticate, async (req: any, res) => {
   const {
     sala,
     data,
@@ -276,30 +657,28 @@ app.post("/api/bookings", async (req, res) => {
     responsavel,
     motivo,
     situacao,
-    equipamentos,
-    usuarioId,
+    equipamentos, // custom historical text fallback
     tempoDeUso,
     pessoas,
     lembreteAntecedencia,
-    lembreteMeio
+    lembreteMeio,
+    equipamentosSolicitados // Array of { equipmentId: string, quantidade: number }
   } = req.body;
 
   if (!sala || !data || !horaInicial || !horaFinal || !responsavel || !situacao) {
-    return res.status(400).json({ error: "Informações fundamentais da reserva ausentes" });
+    return res.status(400).json({ error: "Informações fundamentais do agendamento ausentes." });
   }
 
+  const reqEqs = (equipamentosSolicitados || []) as { equipmentId: string; quantidade: number }[];
+
   try {
+    // 1. Room Overlap Check
     if (situacao === "Confirmado") {
       const startMin = parseTimeToMinutes(horaInicial);
       const endMin = parseTimeToMinutes(horaFinal);
 
-      // Overlap detection
       const overlappingBookings = await prisma.booking.findMany({
-        where: {
-          sala,
-          data,
-          situacao: "Confirmado"
-        }
+        where: { sala, data, situacao: "Confirmado" }
       });
 
       const conflict = overlappingBookings.find((b) => {
@@ -311,38 +690,90 @@ app.post("/api/bookings", async (req, res) => {
       if (conflict) {
         return res.status(400).json({
           conflict: true,
-          error: `⚠️ Conflito de Horário! A sala "${sala}" já está agendada neste mesmo período por "${conflict.responsavel}" (${conflict.horaInicial} às ${conflict.horaFinal}).`
+          error: `⚠️ Conflito de Horário! A sala "${sala}" já está reservada por "${conflict.responsavel}" nesse mesmo período (${conflict.horaInicial} às ${conflict.horaFinal}).`
+        });
+      }
+
+      // 2. Equipment Conflict check
+      const eqConflict = await getEquipmentConflict(undefined, data, horaInicial, horaFinal, reqEqs);
+      if (eqConflict) {
+        return res.status(400).json({
+          equipmentError: true,
+          error: eqConflict.error
         });
       }
     }
 
-    const newBooking = await prisma.booking.create({
-      data: {
-        sala,
-        data,
-        horaInicial,
-        horaFinal,
-        responsavel,
-        motivo: motivo || "Sem motivo especificado",
-        situacao,
-        equipamentos: equipamentos || "Sem material",
-        usuarioId,
-        tempoDeUso: tempoDeUso || "1h",
-        pessoas: pessoas || "1",
-        lembreteAntecedencia: lembreteAntecedencia || "none",
-        lembreteMeio: lembreteMeio || "none"
+    // Build friendly equipment text summary for compatibility with original elements
+    let equipSummaryText = equipamentos || "Sem material";
+    if (reqEqs.length > 0) {
+      const summaryParts = [];
+      for (const reqEq of reqEqs) {
+        if (reqEq.quantidade <= 0) continue;
+        const eqItem = await prisma.equipment.findUnique({ where: { id: reqEq.equipmentId } });
+        if (eqItem) {
+          summaryParts.push(`${eqItem.nome} (${reqEq.quantidade}x)`);
+        }
+      }
+      if (summaryParts.length > 0) {
+        equipSummaryText = summaryParts.join(", ");
+      }
+    }
+
+    // Create the booking record
+    const newBooking = await prisma.$transaction(async (tx) => {
+      const b = await tx.booking.create({
+        data: {
+          sala,
+          data,
+          horaInicial,
+          horaFinal,
+          responsavel,
+          motivo: motivo || "Sem motivo especificado",
+          situacao,
+          equipamentos: equipSummaryText,
+          usuarioId: req.user.userId, // auto bound to logged user ID
+          tempoDeUso: tempoDeUso || "1h",
+          pessoas: pessoas || "1",
+          lembreteAntecedencia: lembreteAntecedencia || "none",
+          lembreteMeio: lembreteMeio || "none"
+        }
+      });
+
+      // Write requested equipments linkage
+      if (reqEqs.length > 0) {
+        await tx.bookingEquipment.createMany({
+          data: reqEqs.map(eq => ({
+            bookingId: b.id,
+            equipmentId: eq.equipmentId,
+            quantidade: eq.quantidade
+          }))
+        });
+      }
+
+      return b;
+    });
+
+    const fullBooking = await prisma.booking.findUnique({
+      where: { id: newBooking.id },
+      include: {
+        equipmentsRequested: {
+          include: {
+            equipment: true
+          }
+        }
       }
     });
 
-    res.json(newBooking);
+    res.json(fullBooking);
   } catch (err) {
     console.error("Erro ao criar reserva no backend:", err);
     res.status(500).json({ error: "Erro ao criar reserva" });
   }
 });
 
-// UPDATE Booking with backend overlap control
-app.put("/api/bookings/:id", async (req, res) => {
+// UPDATE Booking
+app.put("/api/bookings/:id", authenticate, async (req: any, res) => {
   const { id } = req.params;
   const {
     sala,
@@ -353,12 +784,14 @@ app.put("/api/bookings/:id", async (req, res) => {
     motivo,
     situacao,
     equipamentos,
-    usuarioId,
     tempoDeUso,
     pessoas,
     lembreteAntecedencia,
-    lembreteMeio
+    lembreteMeio,
+    equipamentosSolicitados
   } = req.body;
+
+  const reqEqs = (equipamentosSolicitados || []) as { equipmentId: string; quantidade: number }[];
 
   try {
     const existing = await prisma.booking.findUnique({ where: { id } });
@@ -372,7 +805,7 @@ app.put("/api/bookings/:id", async (req, res) => {
       const targetSala = sala || existing.sala;
       const targetData = data || existing.data;
 
-      // Overlap check, skipping current booking ID
+      // 1. Room Overlap Check
       const overlappingBookings = await prisma.booking.findMany({
         where: {
           sala: targetSala,
@@ -391,39 +824,93 @@ app.put("/api/bookings/:id", async (req, res) => {
       if (conflict) {
         return res.status(400).json({
           conflict: true,
-          error: `⚠️ Conflito de Horário! A sala "${targetSala}" já está agendada neste mesmo período por "${conflict.responsavel}" (${conflict.horaInicial} às ${conflict.horaFinal}).`
+          error: `⚠️ Conflito de Horário! A sala "${targetSala}" já está reservada por "${conflict.responsavel}" nesse mesmo período (${conflict.horaInicial} às ${conflict.horaFinal}).`
+        });
+      }
+
+      // 2. Equipment Conflict check
+      const eqConflict = await getEquipmentConflict(id, targetData, horaInicial || existing.horaInicial, horaFinal || existing.horaFinal, reqEqs);
+      if (eqConflict) {
+        return res.status(400).json({
+          equipmentError: true,
+          error: eqConflict.error
         });
       }
     }
 
-    const updated = await prisma.booking.update({
-      where: { id },
-      data: {
-        sala: sala ?? existing.sala,
-        data: data ?? existing.data,
-        horaInicial: horaInicial ?? existing.horaInicial,
-        horaFinal: horaFinal ?? existing.horaFinal,
-        responsavel: responsavel ?? existing.responsavel,
-        motivo: motivo ?? existing.motivo,
-        situacao: situacao ?? existing.situacao,
-        equipamentos: equipamentos ?? existing.equipamentos,
-        usuarioId: usuarioId ?? existing.usuarioId,
-        tempoDeUso: tempoDeUso ?? existing.tempoDeUso,
-        pessoas: pessoas ?? existing.pessoas,
-        lembreteAntecedencia: lembreteAntecedencia ?? existing.lembreteAntecedencia,
-        lembreteMeio: lembreteMeio ?? existing.lembreteMeio
+    // Build friendly equipment text summary
+    let equipSummaryText = equipamentos ?? existing.equipamentos;
+    if (equipamentosSolicitados) {
+      if (reqEqs.length > 0) {
+        const summaryParts = [];
+        for (const reqEq of reqEqs) {
+          if (reqEq.quantidade <= 0) continue;
+          const eqItem = await prisma.equipment.findUnique({ where: { id: reqEq.equipmentId } });
+          if (eqItem) {
+            summaryParts.push(`${eqItem.nome} (${reqEq.quantidade}x)`);
+          }
+        }
+        equipSummaryText = summaryParts.length > 0 ? summaryParts.join(", ") : "Sem material";
+      } else {
+        equipSummaryText = "Sem material";
+      }
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const b = await tx.booking.update({
+        where: { id },
+        data: {
+          sala: sala ?? existing.sala,
+          data: data ?? existing.data,
+          horaInicial: horaInicial ?? existing.horaInicial,
+          horaFinal: horaFinal ?? existing.horaFinal,
+          responsavel: responsavel ?? existing.responsavel,
+          motivo: motivo ?? existing.motivo,
+          situacao: situacao ?? existing.situacao,
+          equipamentos: equipSummaryText,
+          tempoDeUso: tempoDeUso ?? existing.tempoDeUso,
+          pessoas: pessoas ?? existing.pessoas,
+          lembreteAntecedencia: lembreteAntecedencia ?? existing.lembreteAntecedencia,
+          lembreteMeio: lembreteMeio ?? existing.lembreteMeio
+        }
+      });
+
+      if (equipamentosSolicitados) {
+        await tx.bookingEquipment.deleteMany({ where: { bookingId: id } });
+        if (reqEqs.length > 0) {
+          await tx.bookingEquipment.createMany({
+            data: reqEqs.map(eq => ({
+              bookingId: id,
+              equipmentId: eq.equipmentId,
+              quantidade: eq.quantidade
+            }))
+          });
+        }
+      }
+
+      return b;
+    });
+
+    const fullBookingResult = await prisma.booking.findUnique({
+      where: { id: updated.id },
+      include: {
+        equipmentsRequested: {
+          include: {
+            equipment: true
+          }
+        }
       }
     });
 
-    res.json(updated);
+    res.json(fullBookingResult);
   } catch (err) {
     console.error("Erro ao atualizar reserva no backend:", err);
     res.status(500).json({ error: "Erro ao atualizar reserva" });
   }
 });
 
-// QUICK STATUS UPDATE PATCH with overlap logic
-app.patch("/api/bookings/:id/status", async (req, res) => {
+// QUICK STATUS UPDATE PATCH with overlap & equipment checks
+app.patch("/api/bookings/:id/status", authenticate, async (req, res) => {
   const { id } = req.params;
   const { situacao } = req.body;
 
@@ -432,7 +919,12 @@ app.patch("/api/bookings/:id/status", async (req, res) => {
   }
 
   try {
-    const existing = await prisma.booking.findUnique({ where: { id } });
+    const existing = await prisma.booking.findUnique({
+      where: { id },
+      include: {
+        equipmentsRequested: true
+      }
+    });
     if (!existing) {
       return res.status(404).json({ error: "Reserva não cadastrada" });
     }
@@ -441,6 +933,7 @@ app.patch("/api/bookings/:id/status", async (req, res) => {
       const startMin = parseTimeToMinutes(existing.horaInicial);
       const endMin = parseTimeToMinutes(existing.horaFinal);
 
+      // 1. Room Overlap
       const overlappingBookings = await prisma.booking.findMany({
         where: {
           sala: existing.sala,
@@ -459,14 +952,34 @@ app.patch("/api/bookings/:id/status", async (req, res) => {
       if (conflict) {
         return res.status(400).json({
           conflict: true,
-          error: `⚠️ Conflito de Horário! A sala "${existing.sala}" já está agendada neste mesmo período por "${conflict.responsavel}" (${conflict.horaInicial} às ${conflict.horaFinal}).`
+          error: `⚠️ Conflito de Horário! A sala "${existing.sala}" já está reservada por "${conflict.responsavel}" nesse mesmo período (${conflict.horaInicial} às ${conflict.horaFinal}).`
+        });
+      }
+
+      // 2. Equipments overlap check
+      const reqEqs = existing.equipmentsRequested.map(er => ({
+        equipmentId: er.equipmentId,
+        quantidade: er.quantidade
+      }));
+      const eqConflict = await getEquipmentConflict(id, existing.data, existing.horaInicial, existing.horaFinal, reqEqs);
+      if (eqConflict) {
+        return res.status(400).json({
+          equipmentError: true,
+          error: eqConflict.error
         });
       }
     }
 
     const updated = await prisma.booking.update({
       where: { id },
-      data: { situacao }
+      data: { situacao },
+      include: {
+        equipmentsRequested: {
+          include: {
+            equipment: true
+          }
+        }
+      }
     });
 
     res.json(updated);
@@ -476,7 +989,7 @@ app.patch("/api/bookings/:id/status", async (req, res) => {
 });
 
 // DELETE Booking
-app.delete("/api/bookings/:id", async (req, res) => {
+app.delete("/api/bookings/:id", authenticate, async (req, res) => {
   const { id } = req.params;
   try {
     await prisma.booking.delete({ where: { id } });
@@ -487,9 +1000,9 @@ app.delete("/api/bookings/:id", async (req, res) => {
 });
 
 /* -------------------------------------------------------------
- * API ROUTING - ROOMS
+ * API ROUTING - ROOMS (Authenticated Protected)
  * ------------------------------------------------------------- */
-app.get("/api/rooms", async (req, res) => {
+app.get("/api/rooms", authenticate, async (req, res) => {
   try {
     const rooms = await prisma.room.findMany();
     res.json(rooms);
@@ -511,7 +1024,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*", (req: any, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

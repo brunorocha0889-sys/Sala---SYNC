@@ -1,3 +1,23 @@
+export interface Sector {
+  id: string;
+  nome: string;
+}
+
+export interface Equipment {
+  id: string;
+  nome: string;
+  quantidade: number;
+  ativo: boolean;
+}
+
+export interface RequestedEquipment {
+  id: string;
+  bookingId: string;
+  equipmentId: string;
+  quantidade: number;
+  equipment?: Equipment;
+}
+
 export interface Booking {
   id: string;
   data: string; // YYYY-MM-DD
@@ -14,6 +34,7 @@ export interface Booking {
   usuarioId?: string; // ID of user who created this booking
   lembreteAntecedencia?: "none" | "15min" | "30min" | "1h" | "2h" | "24h";
   lembreteMeio?: "none" | "email" | "push" | "ambos";
+  equipmentsRequested?: RequestedEquipment[];
 }
 
 export type UserRole = "Administrador" | "Usuário Padrão";
@@ -24,6 +45,8 @@ export interface SystemUser {
   email: string;
   role: UserRole;
   setor: string;
+  setorId?: string;
+  setorRel?: Sector;
   avatarUrl?: string;
   senha?: string;
 }
