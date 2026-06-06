@@ -41,11 +41,20 @@ model Booking {
 }
 
 model Room {
-  id         String @id
-  nome       String
-  corBg      String
-  corTexto   String
-  capacidade Int
+  id          String   @id @default(uuid())
+  name        String   @unique
+  capacity    Int
+  location    String
+  description String?  @default("")
+  status      String   @default("Ativa") // "Ativa" or "Inativa"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Legacy compatibility fields
+  nome        String?
+  capacidade  Int?
+  corBg       String?  @default("bg-indigo-50 text-indigo-800 border-indigo-200")
+  corTexto    String?  @default("#5B5CEB")
 }
 
 model Sector {

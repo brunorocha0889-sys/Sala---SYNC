@@ -2,31 +2,35 @@ import React, { useState } from "react";
 import { SystemUser, Booking, Sector, Equipment } from "../types";
 import { 
   Users, UserPlus, Shield, Mail, Briefcase, Trash2, Edit2, CheckCircle2, 
-  Lock, AlertTriangle, Key, ArrowRight, UserCheck, Bell, Info, Send, Layers, Settings, ClipboardList
+  Lock, AlertTriangle, Key, ArrowRight, UserCheck, Bell, Info, Send, Layers, Settings, ClipboardList, MapPin
 } from "lucide-react";
 
 interface UserManagementProps {
   users: SystemUser[];
   sectors: Sector[];
   equipments: Equipment[];
+  rooms: any[];
   bookings: Booking[];
   currentUser: SystemUser;
   onSaveUser: (user: SystemUser) => void;
   onDeleteUser: (id: string) => void;
   onRefreshSectors: () => void;
   onRefreshEquipments: () => void;
+  onRefreshRooms: () => void;
 }
 
 export default function UserManagement({
   users,
   sectors,
   equipments,
+  rooms,
   bookings,
   currentUser,
   onSaveUser,
   onDeleteUser,
   onRefreshSectors,
   onRefreshEquipments,
+  onRefreshRooms,
 }: UserManagementProps) {
   const isAdmin = currentUser.role === "Administrador";
 
@@ -49,8 +53,16 @@ export default function UserManagement({
   const [equipmentQty, setEquipmentQty] = useState<number>(1);
   const [equipmentActive, setEquipmentActive] = useState<boolean>(true);
 
-  // Sub-tabs in administration section: "users" | "sectors" | "equipments"
-  const [adminSubTab, setAdminSubTab] = useState<"users" | "sectors" | "equipments">("users");
+  // Form states for Room Manager panel
+  const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
+  const [roomName, setRoomName] = useState("");
+  const [roomCapacity, setRoomCapacity] = useState<number>(10);
+  const [roomLocation, setRoomLocation] = useState("");
+  const [roomDescription, setRoomDescription] = useState("");
+  const [roomStatus, setRoomStatus] = useState<"Ativa" | "Inativa">("Ativa");
+
+  // Sub-tabs in administration section: "users" | "sectors" | "equipments" | "rooms"
+  const [adminSubTab, setAdminSubTab] = useState<"users" | "sectors" | "equipments" | "rooms">("rooms");
 
   const handleEditUser = (user: SystemUser) => {
     if (!isAdmin) return;
@@ -254,6 +266,110 @@ export default function UserManagement({
     } catch {}
   };
 
+  // ROOMS CRUD Actions API proxier
+  const handleCancelEditRoom = () => {
+    setEditingRoomId(null);
+    setRoomName("");
+    setRoomCapacity(10);
+    setRoomLocation("");
+    setRoomDescription("");
+    setRoomStatus("Ativa");
+  };
+
+  const handleStartEditRoom = (room: any) => {
+    setEditingRoomId(room.id);
+    setRoomName(room.name || room.nome || "");
+    setRoomCapacity(room.capacity || room.capacidade || 10);
+    setRoomLocation(room.location || "");
+    setRoomDescription(room.description || "");
+    setRoomStatus((room.status === "Inativa" || room.status === "inativo") ? "Inativa" : "Ativa");
+  };
+
+  const handleSaveRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!roomName.trim() || !roomLocation.trim()) {
+      alert("Por favor, preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    const token = localStorage.getItem("auth_token") || "";
+    try {
+      let res;
+      const payload = {
+        name: roomName.trim(),
+        capacity: Number(roomCapacity),
+        location: roomLocation.trim(),
+        description: roomDescription.trim(),
+        status: roomStatus
+      };
+
+      if (editingRoomId) {
+        res = await fetch(`/api/rooms/${editingRoomId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify(payload)
+        });
+      } else {
+        res = await fetch(`/api/rooms`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify(payload)
+        });
+      }
+
+      if (res.ok) {
+        setSuccessMsg(editingRoomId ? "Sala editada com sucesso!" : "Sala cadastrada com sucesso!");
+        setTimeout(() => setSuccessMsg(""), 4050);
+        handleCancelEditRoom();
+        onRefreshRooms();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Erro ao salvar a sala.");
+      }
+    } catch {
+      alert("Erro de conexão.");
+    }
+  };
+
+  const handleDeleteRoom = async (id: string, name: string) => {
+    if (!window.confirm(`Tem certeza de que deseja excluir permanentemente a sala "${name}"?`)) return;
+    const token = localStorage.getItem("auth_token") || "";
+    try {
+      const res = await fetch(`/api/rooms/${id}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setSuccessMsg("Sala excluída com sucesso!");
+        setTimeout(() => setSuccessMsg(""), 4000);
+        onRefreshRooms();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Não foi possível excluir a sala.");
+      }
+    } catch {
+      alert("Erro de conexão.");
+    }
+  };
+
+  const handleToggleRoomStatus = async (room: any) => {
+    const token = localStorage.getItem("auth_token") || "";
+    const newStatus = room.status === "Ativa" ? "Inativa" : "Ativa";
+    try {
+      const res = await fetch(`/api/rooms/${room.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (res.ok) {
+        onRefreshRooms();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Não foi possível alterar o status.");
+      }
+    } catch {}
+  };
+
 
   // Notification history helper
   const generateSimulatedNotifications = () => {
@@ -309,17 +425,24 @@ export default function UserManagement({
             >
               Equipamentos ({equipments.length})
             </button>
+            <button
+              onClick={() => { setAdminSubTab("rooms"); handleCancelEdit(); handleCancelEditRoom(); }}
+              className={`pb-2 px-2 font-extrabold uppercase tracking-wider transition-all cursor-pointer ${adminSubTab === "rooms" ? "border-b-2 border-indigo-650 text-indigo-700 font-black" : "text-slate-450 hover:text-slate-700"}`}
+            >
+              Salas ({rooms.length})
+            </button>
           </div>
 
           <div className="flex items-center gap-3 mb-4">
             <div className="bg-indigo-50 p-2.5 rounded-xl text-indigo-600">
-              {adminSubTab === "users" ? <UserPlus className="w-5 h-5" /> : adminSubTab === "sectors" ? <Layers className="w-5 h-5" /> : <Settings className="w-5 h-5" />}
+              {adminSubTab === "users" ? <UserPlus className="w-5 h-5" /> : adminSubTab === "sectors" ? <Layers className="w-5 h-5" /> : adminSubTab === "equipments" ? <Settings className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
             </div>
             <div>
               <h3 className="font-extrabold text-slate-800 text-sm uppercase tracking-wider">
                 {adminSubTab === "users" ? (editingUserId ? "Editar Usuário" : "Cadastrar Usuário") : 
                  adminSubTab === "sectors" ? (editingSectorId ? "Editar Setor" : "Cadastrar Setor") : 
-                 (editingEquipmentId ? "Editar Equipamento" : "Adicionar Equipamento")}
+                 adminSubTab === "equipments" ? (editingEquipmentId ? "Editar Equipamento" : "Adicionar Equipamento") : 
+                 (editingRoomId ? "Editar Sala" : "Cadastrar Sala")}
               </h3>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">
                 Permissão Administrada por: {currentUser.setor} (TI)
@@ -617,6 +740,137 @@ export default function UserManagement({
                                 type="button"
                                 onClick={() => handleDeleteEquipment(eq.id, eq.nome)}
                                 className="text-rose-600 hover:text-rose-800 font-bold"
+                              >
+                                Remover
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </form>
+              )}
+
+              {/* SUB TAB: ROOMS FORM & LIST */}
+              {adminSubTab === "rooms" && (
+                <form onSubmit={handleSaveRoom} className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Nome da Sala *</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Sala de Reunião 1, Auditório"
+                      value={roomName}
+                      onChange={(e) => setRoomName(e.target.value)}
+                      className="w-full text-xs font-semibold px-3 py-2 border border-slate-200 rounded-xl focus:outline-hidden focus:border-indigo-600 bg-slate-50/50"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Capacidade *</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={roomCapacity}
+                        onChange={(e) => setRoomCapacity(Number(e.target.value))}
+                        className="w-full text-xs font-semibold px-3 py-2 border border-slate-200 rounded-xl focus:outline-hidden focus:border-indigo-600 bg-slate-50/50"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Localização *</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 2º Andar, Bloco B"
+                        value={roomLocation}
+                        onChange={(e) => setRoomLocation(e.target.value)}
+                        className="w-full text-xs font-semibold px-3 py-2 border border-slate-200 rounded-xl focus:outline-hidden focus:border-indigo-600 bg-slate-50/50"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Descrição (Opcional)</label>
+                    <textarea
+                      placeholder="Breve descrição dos recursos etc..."
+                      value={roomDescription}
+                      onChange={(e) => setRoomDescription(e.target.value)}
+                      className="w-full h-16 max-h-24 text-xs font-semibold px-3 py-2 border border-slate-200 rounded-xl focus:outline-hidden focus:border-indigo-600 bg-slate-50/50 resize-y"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Status</label>
+                    <select
+                      value={roomStatus}
+                      onChange={(e) => setRoomStatus(e.target.value as "Ativa" | "Inativa")}
+                      className="w-full text-xs font-semibold px-3 py-2 border border-slate-200 rounded-xl focus:outline-hidden focus:border-indigo-600 bg-slate-50/50 cursor-pointer animate-fade-in"
+                    >
+                      <option value="Ativa">Ativa</option>
+                      <option value="Inativa">Inativa</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="submit"
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-4 rounded-xl shadow-sm transition-all text-center cursor-pointer"
+                    >
+                      {editingRoomId ? "Salvar Sala" : "Adicionar Sala"}
+                    </button>
+                    {editingRoomId && (
+                      <button
+                        type="button"
+                        onClick={handleCancelEditRoom}
+                        className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs uppercase tracking-wider py-2.5 px-3 rounded-xl cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="border-t border-slate-100 pt-3 mt-3">
+                    <p className="text-[10px] font-black text-slate-450 uppercase tracking-widest mb-2">Salas Cadastradas</p>
+                    <div className="space-y-1.5 max-h-[170px] overflow-y-auto scrollbar-thin">
+                      {rooms.map(room => (
+                        <div key={room.id} className="p-2.5 bg-slate-50 rounded-lg border border-slate-110 text-xs flex flex-col gap-1.5">
+                          <div className="flex items-start justify-between min-w-0 gap-1">
+                            <div className="min-w-0 flex-1">
+                              <span className="font-bold text-slate-800 block truncate" title={room.name || room.nome}>{room.name || room.nome}</span>
+                              <span className="text-[9px] text-slate-400 font-bold block uppercase tracking-tight truncate">Loc: {room.location || "Presencial"}</span>
+                            </div>
+                            <span className="font-mono bg-indigo-50 text-indigo-850 text-[10px] font-extrabold px-1.5 py-0.5 rounded shrink-0">
+                              Cap: {room.capacity || room.capacidade}
+                            </span>
+                          </div>
+                          
+                          {room.description && (
+                            <p className="text-[9px] text-slate-500 leading-tight italic line-clamp-1">{room.description}</p>
+                          )}
+
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-100 mt-1">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleRoomStatus(room)}
+                              className={`text-[9px] uppercase tracking-wide font-extrabold px-1.5 py-0.5 rounded cursor-pointer ${room.status === "Ativa" ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-slate-150 text-slate-500 border border-slate-300"}`}
+                            >
+                              {room.status === "Ativa" ? "● Ativa" : "○ Inativa"}
+                            </button>
+                            <div className="flex gap-1.5 font-bold text-[10px]">
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditRoom(room)}
+                                className="text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRoom(room.id, room.name || room.nome)}
+                                className="text-rose-600 hover:text-rose-850 cursor-pointer"
                               >
                                 Remover
                               </button>

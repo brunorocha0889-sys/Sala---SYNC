@@ -217,31 +217,51 @@ async function bootstrap() {
       const defaultRooms = [
         {
           id: "sala-escola",
+          name: "Sala (Escola de Saúde)",
           nome: "Sala (Escola de Saúde)",
-          corBg: "bg-amber-50 text-amber-800 border-amber-200",
-          corTexto: "#78350f",
+          capacity: 30,
           capacidade: 30,
+          location: "1º Andar",
+          description: "Equipada com mesas e cadeiras acadêmicas",
+          status: "Ativa",
+          corBg: "bg-amber-50 text-amber-800 border-amber-200",
+          corTexto: "#78350f"
         },
         {
           id: "sala-reunioes-2",
+          name: "Sala de reuniões 2",
           nome: "Sala de reuniões 2",
-          corBg: "bg-emerald-50 text-emerald-800 border-emerald-200",
-          corTexto: "#065f46",
+          capacity: 12,
           capacidade: 12,
+          location: "2º Andar",
+          description: "Mesa diretiva e ar condicionado",
+          status: "Ativa",
+          corBg: "bg-emerald-50 text-emerald-800 border-emerald-200",
+          corTexto: "#065f46"
         },
         {
           id: "sala-conselho",
+          name: "Sala do Conselho",
           nome: "Sala do Conselho",
-          corBg: "bg-blue-50 text-blue-800 border-blue-200",
-          corTexto: "#075985",
+          capacity: 20,
           capacidade: 20,
+          location: "Bloco A, 3º Andar",
+          description: "Disposição em U com cadeiras executivas",
+          status: "Ativa",
+          corBg: "bg-blue-50 text-blue-800 border-blue-200",
+          corTexto: "#075985"
         },
         {
           id: "auditorio",
+          name: "Auditório Principal",
           nome: "Auditório Principal",
-          corBg: "bg-purple-50 text-purple-800 border-purple-200",
-          corTexto: "#6b21a8",
+          capacity: 80,
           capacidade: 80,
+          location: "Térreo",
+          description: "Sistema de som integrado e poltronas",
+          status: "Ativa",
+          corBg: "bg-indigo-50 text-indigo-800 border-indigo-200",
+          corTexto: "#5B5CEB"
         }
       ];
 
@@ -1000,14 +1020,179 @@ app.delete("/api/bookings/:id", authenticate, async (req, res) => {
 });
 
 /* -------------------------------------------------------------
- * API ROUTING - ROOMS (Authenticated Protected)
+ * API ROUTING - ROOMS (Authenticated & Admin Protected CRUD)
  * ------------------------------------------------------------- */
+
+// GET Active Rooms
 app.get("/api/rooms", authenticate, async (req, res) => {
   try {
-    const rooms = await prisma.room.findMany();
+    const rooms = await prisma.room.findMany({
+      where: { status: "Ativa" },
+      orderBy: { name: "asc" }
+    });
     res.json(rooms);
   } catch (err) {
-    res.status(500).json({ error: "Erro ao listar salas predefinidas" });
+    res.status(500).json({ error: "Erro ao listar salas ativas" });
+  }
+});
+
+// GET All Rooms (including inactive, restricted to admins/TI)
+app.get("/api/rooms/all", requireAdmin, async (req, res) => {
+  try {
+    const rooms = await prisma.room.findMany({
+      orderBy: { name: "asc" }
+    });
+    res.json(rooms);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao listar todas as salas" });
+  }
+});
+
+// POST Create Room (restricted to admins/TI)
+app.post("/api/rooms", requireAdmin, async (req, res) => {
+  const { name, capacity, location, description, status, corBg, corTexto } = req.body;
+  if (!name || !name.trim() || typeof capacity !== "number" || capacity <= 0 || !location || !location.trim()) {
+    return res.status(400).json({ error: "Nome, capacidade (número positivo) e localização da sala são obrigatórios." });
+  }
+
+  try {
+    const trimmedName = name.trim();
+    const existing = await prisma.room.findFirst({
+      where: { name: { equals: trimmedName } }
+    });
+    if (existing) {
+      return res.status(400).json({ error: "Já existe uma sala cadastrada com este nome!" });
+    }
+
+    // Assign dynamic or default slate/indigo-based colors to match the app theme
+    const resolvedCorBg = corBg || "bg-indigo-50 text-indigo-800 border-indigo-200";
+    const resolvedCorTexto = corTexto || "#5B5CEB";
+
+    const newRoom = await prisma.room.create({
+      data: {
+        name: trimmedName,
+        nome: trimmedName, // backward compat
+        capacity,
+        capacidade: capacity, // backward compat
+        location: location.trim(),
+        description: description ? description.trim() : "",
+        status: status || "Ativa",
+        corBg: resolvedCorBg,
+        corTexto: resolvedCorTexto
+      }
+    });
+
+    res.json(newRoom);
+  } catch (err) {
+    console.error("Erro ao criar sala:", err);
+    res.status(500).json({ error: "Erro ao criar sala." });
+  }
+});
+
+// PUT Update Room (restricted to admins/TI)
+app.put("/api/rooms/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { name, capacity, location, description, status, corBg, corTexto } = req.body;
+
+  try {
+    const existingRoom = await prisma.room.findUnique({
+      where: { id }
+    });
+    if (!existingRoom) {
+      return res.status(404).json({ error: "Sala não encontrada." });
+    }
+
+    const updateData: any = {};
+    if (name) {
+      const trimmedName = name.trim();
+      const duplicate = await prisma.room.findFirst({
+        where: {
+          name: trimmedName,
+          NOT: { id }
+        }
+      });
+      if (duplicate) {
+        return res.status(400).json({ error: "Já existe outra sala cadastrada com este mesmo nome." });
+      }
+      updateData.name = trimmedName;
+      updateData.nome = trimmedName;
+    }
+
+    if (typeof capacity === "number") {
+      if (capacity <= 0) {
+        return res.status(400).json({ error: "A capacidade deve ser maior que zero." });
+      }
+      updateData.capacity = capacity;
+      updateData.capacidade = capacity;
+    }
+
+    if (location !== undefined) {
+      updateData.location = location.trim();
+    }
+
+    if (description !== undefined) {
+      updateData.description = description.trim();
+    }
+
+    if (status !== undefined) {
+      updateData.status = status;
+    }
+
+    if (corBg !== undefined) {
+      updateData.corBg = corBg;
+    }
+
+    if (corTexto !== undefined) {
+      updateData.corTexto = corTexto;
+    }
+
+    const updatedRoom = await prisma.room.update({
+      where: { id },
+      data: updateData
+    });
+
+    res.json(updatedRoom);
+  } catch (err) {
+    console.error("Erro ao atualizar sala:", err);
+    res.status(500).json({ error: "Erro ao atualizar sala." });
+  }
+});
+
+// DELETE Room (restricted to admins/TI with future bookings validation)
+app.delete("/api/rooms/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const room = await prisma.room.findUnique({
+      where: { id }
+    });
+    if (!room) {
+      return res.status(404).json({ error: "Sala não localizada." });
+    }
+
+    // Validate that there are no future active bookings
+    const todayStr = new Date().toISOString().split("T")[0];
+    const activeFutureBookings = await prisma.booking.findMany({
+      where: {
+        sala: room.name || room.nome || "",
+        situacao: "Confirmado",
+        data: { gte: todayStr }
+      }
+    });
+
+    if (activeFutureBookings.length > 0) {
+      return res.status(400).json({
+        error: `Não é possível excluir esta sala porque ela possui ${activeFutureBookings.length} reservas futuras ativas. Por favor, inative a sala em vez de excluí-la.`
+      });
+    }
+
+    await prisma.room.delete({
+      where: { id }
+    });
+
+    res.json({ message: "Sala removida com sucesso." });
+  } catch (err) {
+    console.error("Erro ao excluir sala:", err);
+    res.status(500).json({ error: "Erro ao excluir sala." });
   }
 });
 

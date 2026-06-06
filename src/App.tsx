@@ -8,6 +8,7 @@ import UserManagement from "./components/UserManagement";
 import LoginScreen from "./components/LoginScreen";
 import WelcomeTour from "./components/WelcomeTour";
 import ToastContainer from "./components/Toast";
+import ExportPanel from "./components/ExportPanel";
 import { AnimatePresence } from "motion/react";
 import { 
   Calendar as CalendarIcon, 
@@ -74,7 +75,7 @@ export default function App() {
   });
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [activeTab, setActiveTab] = useState<"spreadsheet" | "calendar" | "dashboard" | "users" >("spreadsheet");
+  const [activeTab, setActiveTab] = useState<"calendar" | "spreadsheet" | "dashboard" | "users" | "export">("calendar");
   
   // Theme state for light/dark mode
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -194,6 +195,25 @@ export default function App() {
     }
   };
 
+  // Load rooms from Backend API
+  const [rooms, setRooms] = useState<any[]>([]);
+  const fetchRooms = async () => {
+    try {
+      const token = localStorage.getItem("auth_token") || "";
+      const isAdminVal = currentUser && currentUser.role === "Administrador";
+      const endpoint = isAdminVal ? "/api/rooms/all" : "/api/rooms";
+      const res = await fetch(endpoint, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRooms(data);
+      }
+    } catch (e) {
+      console.error("Erro ao carregar salas:", e);
+    }
+  };
+
   // Load bookings from Backend API
   const fetchBookings = async () => {
     try {
@@ -219,10 +239,18 @@ export default function App() {
       fetchBookings();
       fetchSectors();
       fetchEquipments();
+      fetchRooms();
     } else {
       setIsLoggedIn(false);
     }
   }, []);
+
+  // Track changes to currentUser role or isLoggedIn to live-reload rooms permissions context
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchRooms();
+    }
+  }, [isLoggedIn, currentUser?.role]);
 
   // Periodic background check to fetch real-time updates
   useEffect(() => {
@@ -740,49 +768,53 @@ export default function App() {
 
         {/* Tab Controls Navigation Bar */}
         <div className="bg-white border border-slate-200 rounded-2xl p-2 flex flex-wrap gap-2 shadow-xs">
-          <button
-            onClick={() => setActiveTab("spreadsheet")}
-            className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
-              activeTab === "spreadsheet"
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/80"
-            }`}
-          >
-            <TableIcon className="w-4 h-4" />
-            Planilha Interativa
-          </button>
-
+          {/* 1º - CALENDÁRIO MENSAL */}
           <button
             onClick={() => setActiveTab("calendar")}
-            className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl font-semibold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
               activeTab === "calendar"
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/80"
+                ? "bg-indigo-600 text-white shadow-sm font-bold"
+                : "text-slate-505 hover:text-slate-850 hover:bg-slate-50/80"
             }`}
           >
             <CalendarIcon className="w-4 h-4" />
             Calendário Mensal
           </button>
 
+          {/* 2º - PLANILHA INTERATIVA */}
+          <button
+            onClick={() => setActiveTab("spreadsheet")}
+            className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl font-semibold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeTab === "spreadsheet"
+                ? "bg-indigo-600 text-white shadow-sm font-bold"
+                : "text-slate-505 hover:text-slate-850 hover:bg-slate-50/80"
+            }`}
+          >
+            <TableIcon className="w-4 h-4" />
+            Planilha Interativa
+          </button>
+
+          {/* 3º - PAINEL ANALÍTICO */}
           <button
             onClick={() => setActiveTab("dashboard")}
-            className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl font-semibold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
               activeTab === "dashboard"
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/80"
+                ? "bg-indigo-600 text-white shadow-sm font-bold"
+                : "text-slate-505 hover:text-slate-850 hover:bg-slate-50/80"
             }`}
           >
             <LayoutDashboard className="w-4 h-4" />
             Painel Analítico
           </button>
 
+          {/* 4º - SETOR DE TI & CADASTROS */}
           {currentUser.role === "Administrador" && (
             <button
               onClick={() => setActiveTab("users")}
-              className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+              className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl font-semibold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
                 activeTab === "users"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/80"
+                  ? "bg-indigo-600 text-white shadow-sm font-bold"
+                  : "text-slate-505 hover:text-slate-850 hover:bg-slate-50/80"
               }`}
             >
               <Users className="w-4 h-4" />
@@ -790,13 +822,17 @@ export default function App() {
             </button>
           )}
 
+          {/* 5º - EXPORTAR */}
           <button
-            onClick={handleExportCSV}
-            className="py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5"
-            title="Sincronizar e baixar arquivo excel"
+            onClick={() => setActiveTab("export")}
+            className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl font-semibold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeTab === "export"
+                ? "bg-indigo-600 text-white shadow-sm font-bold"
+                : "text-slate-505 hover:text-slate-850 hover:bg-slate-50/80"
+            }`}
           >
             <Download className="w-4 h-4" />
-            <span>Exportar CSV</span>
+            Exportar
           </button>
         </div>
 
@@ -865,12 +901,22 @@ export default function App() {
               users={users}
               sectors={sectors}
               equipments={equipments}
+              rooms={rooms}
               bookings={bookings}
               currentUser={currentUser}
               onSaveUser={handleSaveUser}
               onDeleteUser={handleDeleteUser}
               onRefreshSectors={fetchSectors}
               onRefreshEquipments={fetchEquipments}
+              onRefreshRooms={fetchRooms}
+            />
+          )}
+
+          {activeTab === "export" && (
+            <ExportPanel
+              bookings={bookings}
+              rooms={rooms}
+              currentUser={currentUser}
             />
           )}
         </div>
@@ -885,6 +931,7 @@ export default function App() {
           currentUser={currentUser}
           users={users}
           equipments={equipments}
+          rooms={rooms}
           onSave={handleSaveBooking}
           onClose={() => {
             setIsFormOpen(false);

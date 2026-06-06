@@ -18,6 +18,7 @@ interface BookingFormProps {
   currentUser: SystemUser;
   users: SystemUser[];
   equipments?: Equipment[];
+  rooms?: any[];
   onSave: (booking: Booking & { deEquipmentsIds?: any[] }) => void;
   onClose: () => void;
   addToast: (type: "success" | "error" | "warning" | "info", title: string, message: string) => void;
@@ -53,6 +54,7 @@ export default function BookingForm({
   currentUser, 
   users, 
   equipments = [], 
+  rooms = [],
   onSave, 
   onClose, 
   addToast 
@@ -61,7 +63,14 @@ export default function BookingForm({
   const [data, setData] = useState("");
   const [horaInicial, setHoraInicial] = useState("09:00");
   const [horaFinal, setHoraFinal] = useState("10:30");
-  const [sala, setSala] = useState(SALAS_PREDEFINIDAS[0].nome);
+
+  const activeRooms = rooms && rooms.length > 0 
+    ? rooms.filter(r => r.status === "Ativa" || r.status === "ativo" || !r.status)
+    : SALAS_PREDEFINIDAS;
+
+  const [sala, setSala] = useState(() => {
+    return activeRooms.length > 0 ? (activeRooms[0].name || activeRooms[0].nome) : SALAS_PREDEFINIDAS[0].nome;
+  });
   const [tempoDeUso, setTempoDeUso] = useState("1:30hs");
   const [pessoas, setPessoas] = useState("");
   const [responsavel, setResponsavel] = useState("");
@@ -116,7 +125,7 @@ export default function BookingForm({
       setData(`${yr}-${mo}-${dy}`);
       setHoraInicial("09:00");
       setHoraFinal("10:30");
-      setSala(SALAS_PREDEFINIDAS[0].nome);
+      setSala(activeRooms.length > 0 ? (activeRooms[0].name || activeRooms[0].nome) : SALAS_PREDEFINIDAS[0].nome);
       setTempoDeUso("1:30hs");
       setPessoas("");
       setResponsavel(currentUser.nome);
@@ -127,7 +136,17 @@ export default function BookingForm({
       setUsuarioId(currentUser.id);
       setRequestedEqs({});
     }
-  }, [booking, currentUser]);
+  }, [booking, currentUser, rooms]);
+
+  // Set default room if rooms list changes or initial state needs alignment
+  useEffect(() => {
+    if (!booking && activeRooms.length > 0) {
+      const match = activeRooms.find(r => (r.name || r.nome) === sala);
+      if (!match) {
+        setSala(activeRooms[0].name || activeRooms[0].nome);
+      }
+    }
+  }, [rooms, booking]);
 
   // Recalculate duration when times change
   useEffect(() => {
@@ -299,11 +318,15 @@ export default function BookingForm({
                 disabled={!canEdit}
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
               >
-                {SALAS_PREDEFINIDAS.map((room) => (
-                  <option key={room.id} value={room.nome}>
-                    {room.nome} (Até {room.capacidade} pessoas)
-                  </option>
-                ))}
+                {activeRooms.map((room) => {
+                  const rName = room.name || room.nome;
+                  const rCap = room.capacity || room.capacidade;
+                  return (
+                    <option key={room.id} value={rName}>
+                      {rName} (Até {rCap} pessoas)
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
