@@ -3,12 +3,14 @@ dotenv.config();
 
 import express from "express";
 import path from "path";
+import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "@prisma/client";
 import { createServer as createViteServer } from "vite";
 
-const prisma = new PrismaClient({
-  datasourceUrl: process.env.DATABASE_URL || "file:./dev.db"
-} as any);
+const databaseUrl = process.env.DATABASE_URL || "file:./dev.db";
+const dbPath = databaseUrl.startsWith("file:") ? databaseUrl.substring(5) : databaseUrl;
+const adapter = new PrismaBetterSqlite3({ url: dbPath });
+const prisma = new PrismaClient({ adapter });
 const app = express();
 const PORT = 3000;
 
