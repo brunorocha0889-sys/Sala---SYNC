@@ -61,9 +61,7 @@ export const autoFinalizePastBookings = (currentBookings: Booking[]): { updatedL
     return b;
   });
   return { updatedList, changed };
-};
-
-export default function App() {
+};export default function App() {
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [currentUser, setCurrentUser] = useState<SystemUser>(USUARIOS_PREDEFINIDOS[0]);
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
@@ -120,131 +118,115 @@ export default function App() {
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  // Load bookings and users from LocalStorage
+  // Load users from Backend API
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch("/api/users");
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data);
+        
+        // Sync active user if loaded
+        const savedActiveUserId = localStorage.getItem("active_user_id");
+        const found = data.find((u: SystemUser) => u.id === savedActiveUserId);
+        if (found) {
+          setCurrentUser(found);
+        } else if (data.length > 0) {
+          setCurrentUser(data[0]);
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao carregar usuários:", e);
+    }
+  };
+
+  // Load bookings from Backend API
+  const fetchBookings = async () => {
+    try {
+      const res = await fetch("/api/bookings");
+      if (res.ok) {
+        const data = await res.json();
+        setBookings(data);
+      }
+    } catch (e) {
+      console.error("Erro ao carregar reservas:", e);
+    }
+  };
+
+  // Load data on boot
   useEffect(() => {
-    // One-time clear of legacy bookings to leave database empty
-    const isCleared = localStorage.getItem("bookings_cleared_v2");
-    if (!isCleared) {
-      setBookings([]);
-      localStorage.setItem("room_bookings_data", JSON.stringify([]));
-      localStorage.setItem("bookings_cleared_v2", "true");
-    } else {
-      // Bookings loader
-      const savedBookings = localStorage.getItem("room_bookings_data");
-      if (savedBookings) {
-        try {
-          const parsed = JSON.parse(savedBookings) as Booking[];
-          const { updatedList, changed } = autoFinalizePastBookings(parsed);
-          setBookings(updatedList);
-          if (changed) {
-            localStorage.setItem("room_bookings_data", JSON.stringify(updatedList));
-          }
-        } catch (e) {
-          setBookings(INITIAL_BOOKINGS);
-        }
-      } else {
-        const { updatedList } = autoFinalizePastBookings(INITIAL_BOOKINGS);
-        setBookings(updatedList);
-        localStorage.setItem("room_bookings_data", JSON.stringify(updatedList));
-      }
-    }
+    fetchUsers();
+    fetchBookings();
 
-    // Users
-    const savedUsers = localStorage.getItem("room_users_data");
-    let loadedUsers: SystemUser[] = USUARIOS_PREDEFINIDOS;
-    if (savedUsers) {
-      try {
-        const parsed = JSON.parse(savedUsers) as SystemUser[];
-        // If it starts with legacy users or doesn't have our single admin, force reset
-        if (parsed.some(u => u.id === "user-amanda" || u.id === "user-bruno") || !parsed.some(u => u.id === "user-admin")) {
-          loadedUsers = USUARIOS_PREDEFINIDOS;
-          localStorage.setItem("room_users_data", JSON.stringify(USUARIOS_PREDEFINIDOS));
-          localStorage.removeItem("is_logged_in");
-          localStorage.removeItem("active_user_id");
-        } else {
-          loadedUsers = parsed;
-        }
-        setUsers(loadedUsers);
-      } catch (e) {
-        setUsers(USUARIOS_PREDEFINIDOS);
-        localStorage.setItem("room_users_data", JSON.stringify(USUARIOS_PREDEFINIDOS));
-      }
-    } else {
-      setUsers(USUARIOS_PREDEFINIDOS);
-      localStorage.setItem("room_users_data", JSON.stringify(USUARIOS_PREDEFINIDOS));
-    }
-
-    // Active User
-    const savedActiveUserId = localStorage.getItem("active_user_id");
-    const foundUser = loadedUsers.find((u) => u.id === savedActiveUserId);
-    if (foundUser) {
-      setCurrentUser(foundUser);
-    } else {
-      setCurrentUser(loadedUsers[0] || USUARIOS_PREDEFINIDOS[0]);
-    }
-
-    // Is Logged In
     const loggedInVal = localStorage.getItem("is_logged_in") === "true";
     setIsLoggedIn(loggedInVal);
   }, []);
 
-  // Save bookings to LocalStorage on change
-  const saveBookings = (newBookings: Booking[]) => {
-    const { updatedList } = autoFinalizePastBookings(newBookings);
-    setBookings(updatedList);
-    localStorage.setItem("room_bookings_data", JSON.stringify(updatedList));
-  };
-
-  // Periodic background check to auto-finalize bookings when their scheduled time has passed in real-time
+  // Periodic background check to fetch real-time updates from database in the background
   useEffect(() => {
     const interval = setInterval(() => {
-      setBookings((prevBookings) => {
-        const { updatedList, changed } = autoFinalizePastBookings(prevBookings);
-        if (changed) {
-          localStorage.setItem("room_bookings_data", JSON.stringify(updatedList));
-          return updatedList;
-        }
-        return prevBookings;
-      });
-    }, 10000); // Check every 10 seconds
+      fetchBookings();
+    }, 15000); // Check every 15 seconds
 
     return () => clearInterval(interval);
   }, []);
 
-  // Save users list
-  const handleSaveUsers = (newUsers: SystemUser[]) => {
-    setUsers(newUsers);
-    localStorage.setItem("room_users_data", JSON.stringify(newUsers));
-    
-    // sync current user state if updated
-    const updatedSelf = newUsers.find((u) => u.id === currentUser.id);
-    if (updatedSelf) {
-      setCurrentUser(updatedSelf);
-    }
-  };
-
-  // Add / edit user callback
-  const handleSaveUser = (user: SystemUser) => {
+  // Save user changes callback to Express API
+  const handleSaveUser = async (user: SystemUser) => {
     const exists = users.some((u) => u.id === user.id);
-    let updated: SystemUser[];
-    if (exists) {
-      updated = users.map((u) => (u.id === user.id ? user : u));
-    } else {
-      updated = [...users, user];
+    try {
+      let res;
+      if (exists) {
+        res = await fetch(`/api/users/${user.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(user)
+        });
+      } else {
+        res = await fetch(`/api/users`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(user)
+        });
+      }
+
+      if (res.ok) {
+        addToast(
+          "success", 
+          "Operação realizada com sucesso", 
+          exists ? `Os dados do usuário "${user.nome}" foram alterados.` : `O usuário "${user.nome}" foi cadastrado com sucesso.`
+        );
+        fetchUsers();
+      } else {
+        const errData = await res.json();
+        addToast("error", "Erro ao salvar usuário", errData.error || "Campos inválidos ou email duplicado.");
+      }
+    } catch (e) {
+      addToast("error", "Erro de Rede", "Não foi possível conectar ao servidor.");
     }
-    handleSaveUsers(updated);
   };
 
   // Delete user
-  const handleDeleteUser = (id: string) => {
-    const updated = users.filter((u) => u.id !== id);
-    handleSaveUsers(updated);
-
-    // If current active user got deleted, fallback
-    if (currentUser.id === id) {
-      const fallback = updated[0] || USUARIOS_PREDEFINIDOS[0];
-      setCurrentUser(fallback);
-      localStorage.setItem("active_user_id", fallback.id);
+  const handleDeleteUser = async (id: string) => {
+    try {
+      const res = await fetch(`/api/users/${id}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        addToast("success", "Deletado!", "Usuário removido.");
+        fetchUsers();
+        
+        if (currentUser.id === id) {
+          localStorage.removeItem("active_user_id");
+          localStorage.removeItem("is_logged_in");
+          setIsLoggedIn(false);
+        }
+      } else {
+        const errData = await res.json();
+        addToast("error", "Erro!", errData.error || "Erro ao deletar usuário.");
+      }
+    } catch (e) {
+      addToast("error", "Erro!", "Ocorreu um erro de rede.");
     }
   };
 
@@ -266,10 +248,9 @@ export default function App() {
     localStorage.removeItem("is_logged_in");
   };
 
-  // Add / Edit Booking save transaction handler
-  const handleSaveBooking = (booking: Booking) => {
+  // Add / Edit Booking save transaction handler with backend synchronization
+  const handleSaveBooking = async (booking: Booking) => {
     const exists = bookings.some((b) => b.id === booking.id);
-    let updated: Booking[];
     
     // Check permission to cancel if it's an existing booking being updated to "Cancelado"
     if (exists && booking.situacao === "Cancelado") {
@@ -293,29 +274,44 @@ export default function App() {
       usuarioId: booking.usuarioId || (booking.id ? undefined : currentUser.id), // bind current user's ID for new bookings
     };
 
-    if (exists) {
-      updated = bookings.map((b) => (b.id === booking.id ? finalBooking : b));
-      addToast(
-        "success",
-        "Reserva Atualizada!",
-        `O agendamento para a sala "${booking.sala}" foi atualizado com sucesso.`
-      );
-    } else {
-      updated = [finalBooking, ...bookings];
-      addToast(
-        "success",
-        "Reserva Criada!",
-        `Seu agendamento para a sala "${booking.sala}" foi registrado para o dia ${booking.data.split("-").reverse().join("/")}!`
-      );
+    try {
+      let res;
+      if (exists) {
+        res = await fetch(`/api/bookings/${booking.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(finalBooking)
+        });
+      } else {
+        res = await fetch(`/api/bookings`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(finalBooking)
+        });
+      }
+
+      if (res.ok) {
+        addToast(
+          "success",
+          exists ? "Reserva Atualizada!" : "Reserva Criada!",
+          exists 
+            ? `O agendamento para a sala "${booking.sala}" foi atualizado com sucesso.`
+            : `Seu agendamento para a sala "${booking.sala}" foi registrado para o dia ${booking.data.split("-").reverse().join("/")}!`
+        );
+        fetchBookings();
+        setIsFormOpen(false);
+        setEditingBooking(null);
+      } else {
+        const errData = await res.json();
+        addToast("error", "Erro ao salvar", errData.error || "Ocorreu um problema ao salvar a reserva.");
+      }
+    } catch (e) {
+      addToast("error", "Erro de Rede", "Não foi possível sincronizar sua solicitação com o servidor.");
     }
-    
-    saveBookings(updated);
-    setIsFormOpen(false);
-    setEditingBooking(null);
   };
 
-  // Quick state update shortcut with collision/overlap check
-  const handleUpdateStatus = (id: string, status: "Finalizado" | "Confirmado" | "Cancelado") => {
+  // Quick state update shortcut with remote backend collision/overlap checks
+  const handleUpdateStatus = async (id: string, status: "Finalizado" | "Confirmado" | "Cancelado") => {
     const targetB = bookings.find((b) => b.id === id);
     if (targetB) {
       const isOwner = targetB.usuarioId === currentUser.id || targetB.responsavel.toLowerCase().trim() === currentUser.nome.toLowerCase().trim();
@@ -331,55 +327,49 @@ export default function App() {
         return;
       }
 
-      if (status !== "Cancelado") {
-        // Simple time conversion helper
-        const parseTimeToMinutes = (t: string): number => {
-          if (!t) return 0;
-          const parts = t.split(":");
-          const h = parseInt(parts[0], 10) || 0;
-          const m = parseInt(parts[1], 10) || 0;
-          return h * 60 + m;
-        };
-
-        const startMin = parseTimeToMinutes(targetB.horaInicial);
-        const endMin = parseTimeToMinutes(targetB.horaFinal);
-
-        const overlapping = bookings.find((b) => {
-          if (b.id === id) return false;
-          if (b.situacao === "Cancelado") return false;
-          if (b.sala !== targetB.sala || b.data !== targetB.data) return false;
-
-          const otherStart = parseTimeToMinutes(b.horaInicial);
-          const otherEnd = parseTimeToMinutes(b.horaFinal || b.horaInicial);
-
-          return startMin < otherEnd && endMin > otherStart;
+      try {
+        const res = await fetch(`/api/bookings/${id}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ situacao: status })
         });
 
-        if (overlapping) {
+        if (res.ok) {
+          addToast(
+            "success",
+            "Status Atualizado",
+            `A reserva de ${targetB.responsavel} foi alterada para "${status}" com sucesso.`
+          );
+          fetchBookings();
+        } else {
+          const errData = await res.json();
           addToast(
             "warning",
-            "Conflito de Horários!",
-            `Não foi possível alterar para "${status}". Sala "${targetB.sala}" já possui agendamento por "${overlapping.responsavel}" das ${overlapping.horaInicial} às ${overlapping.horaFinal}.`
+            "Não foi possível salvar",
+            errData.error || "Houve um conflito e a reserva não pôde ser ativa."
           );
-          return;
         }
+      } catch (e) {
+        addToast("error", "Erro", "Erro ao conectar-se ao servidor.");
       }
-
-      const updated = bookings.map((b) => (b.id === id ? { ...b, situacao: status } : b));
-      saveBookings(updated);
-
-      addToast(
-        "success",
-        "Status Atualizado",
-        `A reserva de ${targetB.responsavel} foi alterada para "${status}" com sucesso.`
-      );
     }
   };
 
-  // Single entity delete
-  const handleDeleteBooking = (id: string) => {
-    const updated = bookings.filter((b) => b.id !== id);
-    saveBookings(updated);
+  // Remote Delete Booking
+  const handleDeleteBooking = async (id: string) => {
+    try {
+      const res = await fetch(`/api/bookings/${id}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        addToast("success", "Excluído", "O agendamento foi removido.");
+        fetchBookings();
+      } else {
+        addToast("error", "Erro", "Não foi possível excluir o agendamento desde o servidor.");
+      }
+    } catch (e) {
+      addToast("error", "Erro de Conexão", "Houve uma falha ao enviar o comando.");
+    }
   };
 
   // Trigger form pre-seeded with existing booking but without conflicts
@@ -475,10 +465,17 @@ export default function App() {
           const s2 = b2.horaInicial;
           const e2 = b2.horaFinal || b2.horaInicial;
           
-          const s1Min = s1.split(":").reduce((h, m) => parseInt(h)*60 + parseInt(m));
-          const e1Min = e1.split(":").reduce((h, m) => parseInt(h)*60 + parseInt(m));
-          const s2Min = s2.split(":").reduce((h, m) => parseInt(h)*60 + parseInt(m));
-          const e2Min = e2.split(":").reduce((h, m) => parseInt(h)*60 + parseInt(m));
+          const parseTime = (t: string) => {
+            const parts = t.split(":").map(Number);
+            const h = parts[0] || 0;
+            const m = parts[1] || 0;
+            return h * 60 + m;
+          };
+          
+          const s1Min = parseTime(s1);
+          const e1Min = parseTime(e1);
+          const s2Min = parseTime(s2);
+          const e2Min = parseTime(e2);
           
           if (s1Min < e2Min && e1Min > s2Min) {
             count++;

@@ -29,7 +29,7 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
 
@@ -38,21 +38,24 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
       return;
     }
 
-    const matchedUser = users.find(u => u.id === selectedUserId);
-    if (!matchedUser) {
-      setErrorMsg("Usuário não encontrado.");
-      return;
-    }
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: selectedUserId, senha: password })
+      });
 
-    // Password validation for all registered accounts
-    const expectedPassword = matchedUser.senha || "123456";
-    if (password !== expectedPassword) {
-      setErrorMsg(`Senha inválida! O acesso para o usuário "${matchedUser.nome}" requer a senha correta configurada.`);
-      return;
-    }
+      if (!res.ok) {
+        const data = await res.json();
+        setErrorMsg(data.error || "Senha incorreta.");
+        return;
+      }
 
-    // Success login transaction
-    onLoginSuccess(matchedUser);
+      const user = await res.json();
+      onLoginSuccess(user);
+    } catch (err) {
+      setErrorMsg("Erro ao comunicar com o servidor de autenticação.");
+    }
   };
 
   // Safe helper to find selected user object

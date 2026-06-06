@@ -1,0 +1,46 @@
+// Prisma schema file for SALA-SYNC SQLite Database
+
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String    @id @default(uuid())
+  nome      String
+  email     String    @unique
+  senha     String
+  role      String
+  setor     String
+  avatarUrl String?   @default("")
+  bookings  Booking[]
+}
+
+model Booking {
+  id                   String   @id @default(uuid())
+  sala                 String
+  data                 String
+  horaInicial          String
+  horaFinal            String
+  responsavel          String
+  motivo               String
+  situacao             String   // "Confirmado", "Finalizado", "Cancelado"
+  equipamentos         String
+  tempoDeUso           String?  @default("1h")
+  pessoas              String?  @default("1")
+  usuarioId            String?
+  lembreteAntecedencia String?  @default("none")
+  lembreteMeio         String?  @default("none")
+  usuario              User?    @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+}
+
+model Room {
+  id         String @id
+  nome       String
+  corBg      String
+  corTexto   String
+  capacidade Int
+}
