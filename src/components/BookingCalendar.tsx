@@ -18,9 +18,15 @@ export default function BookingCalendar({ bookings, currentUser, onAddOnDate, on
     return !!(matchId || matchName);
   };
 
-  // Set default calendar date to May 2026 since most of the user's initial data resides there
-  const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 4, 1)); // May 2026 (0-indexed 4)
-  const [selectedDay, setSelectedDay] = useState<string | null>("2026-05-12"); // pre-select a day with events
+  // Set default calendar date to the current month/year (mês vigente) and select today as default
+  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
+  const [selectedDay, setSelectedDay] = useState<string | null>(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  });
 
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();

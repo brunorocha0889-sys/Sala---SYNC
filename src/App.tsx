@@ -236,20 +236,12 @@ export default function App() {
     }
   };
 
-  // Load data on boot
+  // Load data on boot - Always start logged out on logon screen as per requirement
   useEffect(() => {
-    const loggedInVal = localStorage.getItem("is_logged_in") === "true";
-    const token = localStorage.getItem("auth_token");
-    if (loggedInVal && token) {
-      setIsLoggedIn(true);
-      fetchUsers();
-      fetchBookings();
-      fetchSectors();
-      fetchEquipments();
-      fetchRooms();
-    } else {
-      setIsLoggedIn(false);
-    }
+    setIsLoggedIn(false);
+    localStorage.removeItem("is_logged_in");
+    localStorage.removeItem("active_user_id");
+    localStorage.removeItem("auth_token");
   }, []);
 
   // Track changes to currentUser role or isLoggedIn to live-reload rooms permissions context
