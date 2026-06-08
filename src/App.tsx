@@ -21,7 +21,10 @@ import {
   Moon,
   Users,
   LogOut,
-  Download
+  Download,
+  ClipboardList,
+  CheckCircle2,
+  AlertTriangle
 } from "lucide-react";
 
 function parseTimeToMinutes(tStr: string): number {
@@ -89,6 +92,10 @@ export default function App() {
   // Edit & Add states
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [recurrentResult, setRecurrentResult] = useState<{
+    criados: string[];
+    conflitos: { data: string; motivo: string }[];
+  } | null>(null);
 
   // Toast notifications state
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -401,13 +408,35 @@ export default function App() {
       }
 
       if (res.ok) {
-        addToast(
-          "success",
-          exists ? "Reserva Atualizada!" : "Reserva Criada!",
-          exists 
-            ? `O agendamento para a sala "${booking.sala}" foi atualizado com sucesso.`
-            : `Seu agendamento para a sala "${booking.sala}" foi registrado para o dia ${booking.data.split("-").reverse().join("/")}!`
-        );
+        const resData = await res.json();
+        if (resData.isRecurrent) {
+          setRecurrentResult({
+            criados: resData.criados,
+            conflitos: resData.conflitos
+          });
+          
+          if (resData.criados.length > 0) {
+            addToast(
+              "success",
+              "Série Recorrente Processada",
+              `${resData.criados.length} agendamentos foram criados com sucesso.`
+            );
+          } else {
+            addToast(
+              "warning",
+              "Conflito Geral Detectado",
+              "Nenhum agendamento pôde ser criado por conta de conflitos de horário/equipamento."
+            );
+          }
+        } else {
+          addToast(
+            "success",
+            exists ? "Reserva Atualizada!" : "Reserva Criada!",
+            exists 
+              ? `O agendamento para a sala "${booking.sala}" foi atualizado com sucesso.`
+              : `Seu agendamento para a sala "${booking.sala}" foi registrado para o dia ${booking.data.split("-").reverse().join("/")}!`
+          );
+        }
         fetchBookings();
         fetchEquipments(); // refresh available counts
         setIsFormOpen(false);
@@ -852,6 +881,7 @@ export default function App() {
               <BookingTable
                 bookings={bookings}
                 currentUser={currentUser}
+                rooms={rooms}
                 onEdit={handleEditClick}
                 onDelete={handleDeleteBooking}
                 onAddClick={handleAddNewClick}
@@ -878,7 +908,7 @@ export default function App() {
 
           {activeTab === "dashboard" && (
             <div className="space-y-6">
-              <BookingStats bookings={bookings} />
+              <BookingStats bookings={bookings} rooms={rooms} />
               
               <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs flex flex-col sm:flex-row gap-4 items-start">
                 <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
@@ -939,6 +969,90 @@ export default function App() {
           }}
           addToast={addToast}
         />
+      )}
+
+      {/* Recurrence Outcome Feedback Modal */}
+      {recurrentResult && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl p-6 max-w-lg w-full max-h-[85vh] overflow-y-auto flex flex-col space-y-5 animate-scale-up">
+            
+            {/* Header */}
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+              <div className="w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold">
+                <ClipboardList className="w-5 h-5 text-indigo-650" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-850 uppercase tracking-wider">Resultado dos Agendamentos Recorrentes</h3>
+                <p className="text-[10px] text-slate-450 font-bold uppercase">Série processada com validação individual de conflitos</p>
+              </div>
+            </div>
+
+            {/* List 1: Criados com sucesso */}
+            {recurrentResult.criados.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1.5 rounded-xl">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  Agendamentos criados com sucesso ({recurrentResult.criados.length})
+                </h4>
+                <div className="grid grid-cols-2 gap-1.5 max-h-[140px] overflow-y-auto pr-1">
+                  {recurrentResult.criados.map((date) => {
+                    const [y, m, d] = date.split("-");
+                    return (
+                      <span key={date} className="bg-emerald-50/40 border border-emerald-100 text-emerald-800 text-[11px] font-black font-mono px-2.5 py-1.5 rounded-xl text-center shadow-3xs flex items-center justify-center gap-1.5 animate-fade-in">
+                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                        {d}/{m}/{y}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* List 2: Conflitos */}
+            {recurrentResult.conflitos.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-black text-rose-600 uppercase tracking-widest flex items-center gap-1.5 bg-rose-50 px-2.5 py-1.5 rounded-xl">
+                  <AlertTriangle className="w-4 h-4 text-rose-500" />
+                  Não foi possível agendar nas seguintes datas ({recurrentResult.conflitos.length})
+                </h4>
+                <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                  {recurrentResult.conflitos.map((c, idx) => {
+                    const [y, m, d] = c.data.split("-");
+                    return (
+                      <div key={idx} className="bg-rose-50/30 border border-rose-100 p-2.5 rounded-xl flex flex-col gap-0.5 shadow-3xs animate-fade-in">
+                        <span className="text-rose-900 font-black font-mono text-[11px] block">
+                          📅 {d}/{m}/{y}
+                        </span>
+                        <span className="text-slate-500 font-bold text-[10px] leading-relaxed">
+                          {c.motivo}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Empty result warning */}
+            {recurrentResult.criados.length === 0 && recurrentResult.conflitos.length === 0 && (
+              <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-5 text-center">
+                <p className="text-xs text-slate-550 font-bold">Nenhum resultado processado.</p>
+              </div>
+            )}
+
+            {/* Footer Button */}
+            <div className="pt-3 border-t border-slate-100 text-center">
+              <button
+                type="button"
+                onClick={() => setRecurrentResult(null)}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase tracking-widest py-3 px-6 rounded-2xl shadow-md cursor-pointer transition-all hover:scale-101 shrink-0"
+              >
+                Concluir e Voltar
+              </button>
+            </div>
+
+          </div>
+        </div>
       )}
 
       {/* Toast notifications container */}

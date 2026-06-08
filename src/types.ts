@@ -35,6 +35,7 @@ export interface Booking {
   lembreteAntecedencia?: "none" | "15min" | "30min" | "1h" | "2h" | "24h";
   lembreteMeio?: "none" | "email" | "push" | "ambos";
   equipmentsRequested?: RequestedEquipment[];
+  recorrenceId?: string;
 }
 
 export type UserRole = "Administrador" | "Usuário Padrão";

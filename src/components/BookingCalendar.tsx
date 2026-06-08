@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Booking, SystemUser } from "../types";
-import { SALAS_PREDEFINIDAS } from "../data";
 import { ChevronLeft, ChevronRight, Calendar, Plus, Clock, User, ClipboardList, Users, Lock } from "lucide-react";
 
 interface BookingCalendarProps {
@@ -231,7 +230,7 @@ export default function BookingCalendar({ bookings, currentUser, onAddOnDate, on
                           className={`text-[9px] sm:text-[10px] leading-tight py-0.5 px-1 rounded truncate font-medium transition-transform hover:scale-98 ${getRoomColorBadge(ev.sala)}`}
                           title={`${ev.horaInicial} - ${ev.sala} (${ev.responsavel})`}
                         >
-                          <strong>{ev.horaInicial}</strong> {ev.responsavel}
+                          <strong>{ev.horaInicial}</strong> {ev.recorrenceId ? "🔁 " : ""}{ev.responsavel}
                         </div>
                       ))}
                     </div>
@@ -311,9 +310,14 @@ export default function BookingCalendar({ bookings, currentUser, onAddOnDate, on
                       <Clock className="w-3 h-3 text-slate-400" />
                       {ev.horaInicial}s às {ev.horaFinal}s
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <User className="w-3 h-3 text-slate-400" />
-                      {ev.responsavel}
+                      <span className="font-semibold text-slate-700">{ev.responsavel}</span>
+                      {ev.recorrenceId && (
+                        <span className="inline-flex items-center text-[9px] bg-indigo-50 border border-indigo-150 text-indigo-700 font-extrabold px-1 py-0.5 rounded-sm shadow-3xs" title="Agendamento Recorrente">
+                          🔁 Recorrente
+                        </span>
+                      )}
                     </div>
                     {ev.pessoas && (
                       <div className="flex items-center gap-1.5">

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Booking, SystemUser } from "../types";
-import { SALAS_PREDEFINIDAS, EQUIPAMENTOS_PREDEFINIDOS } from "../data";
+import { EQUIPAMENTOS_PREDEFINIDOS } from "../data";
 import { 
   Search, Filter, Calendar, Users, FileText, CheckCircle, Clock, Trash2, Edit2, 
   ChevronUp, ChevronDown, PlusCircle, Ban, RefreshCw, Layers, SlidersHorizontal, EyeOff, Copy, Lock
@@ -9,6 +9,7 @@ import {
 interface BookingTableProps {
   bookings: Booking[];
   currentUser: SystemUser;
+  rooms?: any[];
   onEdit: (booking: Booking) => void;
   onDelete: (id: string) => void;
   onAddClick: () => void;
@@ -19,6 +20,7 @@ interface BookingTableProps {
 export default function BookingTable({
   bookings,
   currentUser,
+  rooms = [],
   onEdit,
   onDelete,
   onAddClick,
@@ -271,11 +273,14 @@ export default function BookingTable({
               className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-500"
             >
               <option value="">Todas as salas</option>
-              {SALAS_PREDEFINIDAS.map((room) => (
-                <option key={room.id} value={room.nome}>
-                  {room.nome}
-                </option>
-              ))}
+              {rooms.map((room) => {
+                const rName = room.name || room.nome;
+                return (
+                  <option key={room.id} value={rName}>
+                    {rName}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
@@ -445,8 +450,15 @@ export default function BookingTable({
                     </td>
 
                     {/* Date */}
-                    <td className="py-3 px-4 font-mono font-medium text-xs text-slate-600">
-                      {formatBrazilianDate(b.data)}
+                    <td className="py-3 px-4 text-slate-600 font-medium whitespace-nowrap">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-mono text-xs">{formatBrazilianDate(b.data)}</span>
+                        {b.recorrenceId && (
+                          <span className="inline-flex items-center text-[8px] bg-indigo-50 border border-indigo-100 text-indigo-750 font-black px-1.5 py-0.5 rounded-md shadow-3xs w-fit uppercase tracking-wider gap-0.5" title="Agendamento Recorrente">
+                            🔁 Recorrente
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Hora Inicial */}

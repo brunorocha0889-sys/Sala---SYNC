@@ -3,14 +3,7 @@ import { Booking, SystemUser, Equipment } from "../types";
 import { 
   X, Calendar, Clock, User, Check, AlertCircle, MessageSquare, Bell, Mail
 } from "lucide-react";
-
-// Predefined Rooms
-export const SALAS_PREDEFINIDAS = [
-  { id: "sala-escola", nome: "Sala (Escola de Saúde)", capacidade: 30 },
-  { id: "sala-reunioes-2", nome: "Sala de reuniões 2", capacidade: 12 },
-  { id: "sala-conselho", nome: "Sala do Conselho", capacidade: 20 },
-  { id: "auditorio", nome: "Auditório Principal", capacidade: 80 }
-];
+import MultiDatePicker from "./MultiDatePicker";
 
 interface BookingFormProps {
   booking: Booking | null;
@@ -66,10 +59,10 @@ export default function BookingForm({
 
   const activeRooms = rooms && rooms.length > 0 
     ? rooms.filter(r => r.status === "Ativa" || r.status === "ativo" || !r.status)
-    : SALAS_PREDEFINIDAS;
+    : [];
 
   const [sala, setSala] = useState(() => {
-    return activeRooms.length > 0 ? (activeRooms[0].name || activeRooms[0].nome) : SALAS_PREDEFINIDAS[0].nome;
+    return activeRooms.length > 0 ? (activeRooms[0].name || activeRooms[0].nome) : "";
   });
   const [tempoDeUso, setTempoDeUso] = useState("1:30hs");
   const [pessoas, setPessoas] = useState("");
@@ -84,6 +77,10 @@ export default function BookingForm({
   const [requestedEqs, setRequestedEqs] = useState<Record<string, number>>({});
   
   const [conflict, setConflict] = useState<Booking | null>(null);
+
+  // Recurrency states
+  const [isRecurrent, setIsRecurrent] = useState(false);
+  const [recurrentDates, setRecurrentDates] = useState<string[]>([]);
 
   // Checks permission
   const isNew = !booking || !booking.id;
@@ -125,7 +122,7 @@ export default function BookingForm({
       setData(`${yr}-${mo}-${dy}`);
       setHoraInicial("09:00");
       setHoraFinal("10:30");
-      setSala(activeRooms.length > 0 ? (activeRooms[0].name || activeRooms[0].nome) : SALAS_PREDEFINIDAS[0].nome);
+      setSala(activeRooms.length > 0 ? (activeRooms[0].name || activeRooms[0].nome) : "");
       setTempoDeUso("1:30hs");
       setPessoas("");
       setResponsavel(currentUser.nome);
@@ -202,12 +199,16 @@ export default function BookingForm({
       alert("Você não possui permissão para salvar modificações neste agendamento.");
       return;
     }
-    if (conflict && situacao !== "Cancelado") {
+    if (conflict && situacao !== "Cancelado" && !isRecurrent) {
       addToast(
         "error",
         "Erro de Conflito de Horário",
         `Não é possível salvar porque a sala "${sala}" já está reservada por "${conflict.responsavel}" das ${conflict.horaInicial} às ${conflict.horaFinal}.`
       );
+      return;
+    }
+    if (isRecurrent && recurrentDates.length === 0) {
+      alert("Por favor, selecione ao menos uma data no calendário para agendamento recorrente.");
       return;
     }
     if (!responsavel.trim()) {
@@ -228,7 +229,7 @@ export default function BookingForm({
 
     onSave({
       id,
-      data,
+      data: isRecurrent ? recurrentDates[0] : data,
       horaInicial,
       horaFinal,
       sala,
@@ -241,8 +242,9 @@ export default function BookingForm({
       lembreteAntecedencia,
       lembreteMeio,
       usuarioId: usuarioId || currentUser.id,
-      deEquipmentsIds: selectedEqsArray
-    });
+      deEquipmentsIds: selectedEqsArray,
+      datasRecorrentes: isRecurrent ? recurrentDates : undefined,
+    } as any);
   };
 
   const getPortugueseDate = (dStr: string) => {
@@ -318,31 +320,68 @@ export default function BookingForm({
                 disabled={!canEdit}
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
               >
-                {activeRooms.map((room) => {
-                  const rName = room.name || room.nome;
-                  const rCap = room.capacity || room.capacidade;
-                  return (
-                    <option key={room.id} value={rName}>
-                      {rName} (Até {rCap} pessoas)
-                    </option>
-                  );
-                })}
+                {activeRooms.length === 0 ? (
+                  <option value="">🚫 Nenhuma sala ativa cadastrada no TI</option>
+                ) : (
+                  activeRooms.map((room) => {
+                    const rName = room.name || room.nome;
+                    const rCap = room.capacity || room.capacidade;
+                    return (
+                      <option key={room.id} value={rName}>
+                        {rName} (Até {rCap} pessoas)
+                      </option>
+                    );
+                  })
+                )}
               </select>
             </div>
 
-            {/* Data Input */}
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
-                <Calendar className="w-3 h-3 text-slate-400" /> Data
-              </label>
-              <input
-                type="date"
-                required
-                value={data}
-                onChange={(e) => setData(e.target.value)}
-                disabled={!canEdit}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
-              />
+            {/* Recurrence Toggle */}
+            {isNew && (
+              <div className="sm:col-span-2 bg-indigo-50/40 border border-indigo-100 rounded-xl p-3 flex items-center justify-between animate-fade-in">
+                <div>
+                  <h4 className="text-xs font-extrabold text-indigo-950 uppercase tracking-wide">Agendamento Recorrente</h4>
+                  <p className="text-[10px] text-indigo-700/80 font-bold mt-0.5">Reservar a mesma sala em múltiplos dias diferentes</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isRecurrent}
+                    onChange={(e) => setIsRecurrent(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-650"></div>
+                </label>
+              </div>
+            )}
+
+            {/* Date Selection */}
+            <div className="sm:col-span-2">
+              {!isRecurrent ? (
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                    <Calendar className="w-3 h-3 text-slate-400" /> Data do Agendamento
+                  </label>
+                  <input
+                    type="date"
+                    required={!isRecurrent}
+                    value={data}
+                    onChange={(e) => setData(e.target.value)}
+                    disabled={!canEdit}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-75 disabled:cursor-not-allowed font-semibold"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                    <Calendar className="w-3 h-3 text-indigo-500" /> Selecione as Datas Recorrentes
+                  </label>
+                  <MultiDatePicker
+                    selectedDates={recurrentDates}
+                    onChange={setRecurrentDates}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Situacao / Status */}

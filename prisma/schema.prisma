@@ -36,6 +36,7 @@ model Booking {
   usuarioId            String?
   lembreteAntecedencia String?            @default("none")
   lembreteMeio         String?            @default("none")
+  recorrenceId         String?
   usuario              User?              @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
   equipmentsRequested  BookingEquipment[]
 }

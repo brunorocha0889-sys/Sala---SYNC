@@ -1,12 +1,13 @@
 import { Booking } from "../types";
-import { SALAS_PREDEFINIDAS, EQUIPAMENTOS_PREDEFINIDOS } from "../data";
+import { EQUIPAMENTOS_PREDEFINIDOS } from "../data";
 import { Calendar, CheckCircle, Clock, BarChart3, ShieldAlert, Cpu, Tv, Wifi } from "lucide-react";
 
 interface BookingStatsProps {
   bookings: Booking[];
+  rooms?: any[];
 }
 
-export default function BookingStats({ bookings }: BookingStatsProps) {
+export default function BookingStats({ bookings, rooms = [] }: BookingStatsProps) {
   const total = bookings.length;
   const finalizados = bookings.filter((b) => b.situacao === "Finalizado").length;
   const confirmados = bookings.filter((b) => b.situacao === "Confirmado").length;
@@ -19,13 +20,18 @@ export default function BookingStats({ bookings }: BookingStatsProps) {
     ? Math.round((confirmados / Math.max(1, bookings.length)) * 100)
     : 0;
 
+  const resolvedRooms = rooms && rooms.length > 0 ? rooms : [];
+
   // Usage by room
-  const roomStats = SALAS_PREDEFINIDAS.map((room) => {
-    const count = bookings.filter((b) => b.sala === room.nome && b.situacao !== "Cancelado").length;
+  const roomStats = resolvedRooms.map((room) => {
+    const rName = room.name || room.nome;
+    const rBg = room.corBg || "bg-indigo-50 text-indigo-850 border-indigo-110";
+    const count = bookings.filter((b) => b.sala === rName && b.situacao !== "Cancelado").length;
     return {
-      nome: room.nome,
+      nome: rName,
       count,
-      corBg: room.corBg,
+      corBg: rBg,
+      capacity: room.capacity || room.capacidade || 10,
     };
   }).sort((a, b) => b.count - a.count);
 
@@ -126,8 +132,8 @@ export default function BookingStats({ bookings }: BookingStatsProps) {
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {roomStats.map((roomStat) => {
-            const predef = SALAS_PREDEFINIDAS.find((s) => s.nome === roomStat.nome);
-            const cap = predef?.capacidade || 10;
+            const predef = resolvedRooms.find((s) => (s.name || s.nome) === roomStat.nome);
+            const cap = predef?.capacity || predef?.capacidade || roomStat.capacity || 10;
             const percentage = totalActive > 0 ? (roomStat.count / totalActive) * 100 : 0;
 
             return (

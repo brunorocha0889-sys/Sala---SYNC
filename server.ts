@@ -6,6 +6,7 @@ import path from "path";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "@prisma/client";
 import { createServer as createViteServer } from "vite";
+import crypto from "crypto";
 
 const databaseUrl = process.env.DATABASE_URL || "file:./dev.db";
 const dbPath = databaseUrl.startsWith("file:") ? databaseUrl.substring(5) : databaseUrl;
@@ -211,66 +212,7 @@ async function bootstrap() {
       }
     }
 
-    // 3. Seed Rooms
-    const roomCount = await prisma.room.count();
-    if (roomCount === 0) {
-      const defaultRooms = [
-        {
-          id: "sala-escola",
-          name: "Sala (Escola de Saúde)",
-          nome: "Sala (Escola de Saúde)",
-          capacity: 30,
-          capacidade: 30,
-          location: "1º Andar",
-          description: "Equipada com mesas e cadeiras acadêmicas",
-          status: "Ativa",
-          corBg: "bg-amber-50 text-amber-800 border-amber-200",
-          corTexto: "#78350f"
-        },
-        {
-          id: "sala-reunioes-2",
-          name: "Sala de reuniões 2",
-          nome: "Sala de reuniões 2",
-          capacity: 12,
-          capacidade: 12,
-          location: "2º Andar",
-          description: "Mesa diretiva e ar condicionado",
-          status: "Ativa",
-          corBg: "bg-emerald-50 text-emerald-800 border-emerald-200",
-          corTexto: "#065f46"
-        },
-        {
-          id: "sala-conselho",
-          name: "Sala do Conselho",
-          nome: "Sala do Conselho",
-          capacity: 20,
-          capacidade: 20,
-          location: "Bloco A, 3º Andar",
-          description: "Disposição em U com cadeiras executivas",
-          status: "Ativa",
-          corBg: "bg-blue-50 text-blue-800 border-blue-200",
-          corTexto: "#075985"
-        },
-        {
-          id: "auditorio",
-          name: "Auditório Principal",
-          nome: "Auditório Principal",
-          capacity: 80,
-          capacidade: 80,
-          location: "Térreo",
-          description: "Sistema de som integrado e poltronas",
-          status: "Ativa",
-          corBg: "bg-indigo-50 text-indigo-800 border-indigo-200",
-          corTexto: "#5B5CEB"
-        }
-      ];
-
-      for (const room of defaultRooms) {
-        await prisma.room.create({ data: room });
-      }
-      console.log("[Bootstrap] Salas iniciais criadas.");
-    }
-
+    // 3. Rooms seeding is disabled; rooms are created exclusively via Admin TI panel.
     // 4. Seed Equipments
     const eqCount = await prisma.equipment.count();
     if (eqCount === 0) {
@@ -682,7 +624,8 @@ app.post("/api/bookings", authenticate, async (req: any, res) => {
     pessoas,
     lembreteAntecedencia,
     lembreteMeio,
-    equipamentosSolicitados // Array of { equipmentId: string, quantidade: number }
+    equipamentosSolicitados, // Array of { equipmentId: string, quantidade: number }
+    datasRecorrentes // Array of "YYYY-MM-DD"
   } = req.body;
 
   if (!sala || !data || !horaInicial || !horaFinal || !responsavel || !situacao) {
@@ -691,12 +634,134 @@ app.post("/api/bookings", authenticate, async (req: any, res) => {
 
   const reqEqs = (equipamentosSolicitados || []) as { equipmentId: string; quantidade: number }[];
 
+  // Handle recurrence creation loop
+  if (datasRecorrentes && Array.isArray(datasRecorrentes) && datasRecorrentes.length > 0) {
+    const recurrenceId = crypto.randomUUID();
+    const criados: string[] = [];
+    const conflitos: { data: string; motivo: string }[] = [];
+
+    // Pre-build the equipment text summary
+    let equipSummaryText = equipamentos || "Sem material";
+    if (reqEqs.length > 0) {
+      const summaryParts = [];
+      for (const reqEq of reqEqs) {
+        if (reqEq.quantidade <= 0) continue;
+        const eqItem = await prisma.equipment.findUnique({ where: { id: reqEq.equipmentId } });
+        if (eqItem) {
+          summaryParts.push(`${eqItem.nome} (${reqEq.quantidade}x)`);
+        }
+      }
+      if (summaryParts.length > 0) {
+        equipSummaryText = summaryParts.join(", ");
+      }
+    }
+
+    const startMin = parseTimeToMinutes(horaInicial);
+    const endMin = parseTimeToMinutes(horaFinal);
+
+    for (const d of datasRecorrentes) {
+      try {
+        if (situacao === "Confirmado") {
+          // 1. Room Overlap Check
+          const overlappingBookings = await prisma.booking.findMany({
+            where: { sala, data: d, situacao: "Confirmado" }
+          });
+
+          const conflict = overlappingBookings.find((b) => {
+            const otherStart = parseTimeToMinutes(b.horaInicial);
+            const otherEnd = parseTimeToMinutes(b.horaFinal);
+            return startMin < otherEnd && endMin > otherStart;
+          });
+
+          if (conflict) {
+            conflitos.push({
+              data: d,
+              motivo: `Sala "${sala}" ocupada das ${conflict.horaInicial} às ${conflict.horaFinal} por "${conflict.responsavel}".`
+            });
+            continue;
+          }
+
+          // 2. Equipment Conflict check
+          const eqConflict = await getEquipmentConflict(undefined, d, horaInicial, horaFinal, reqEqs);
+          if (eqConflict) {
+            conflitos.push({
+              data: d,
+              motivo: eqConflict.error
+            });
+            continue;
+          }
+        }
+
+        // Create individual booking for date d
+        await prisma.$transaction(async (tx) => {
+          const b = await tx.booking.create({
+            data: {
+              sala,
+              data: d,
+              horaInicial,
+              horaFinal,
+              responsavel,
+              motivo: motivo || "Sem motivo especificado",
+              situacao,
+              equipamentos: equipSummaryText,
+              usuarioId: req.user.userId,
+              tempoDeUso: tempoDeUso || "1h",
+              pessoas: pessoas || "1",
+              lembreteAntecedencia: lembreteAntecedencia || "none",
+              lembreteMeio: lembreteMeio || "none",
+              recorrenceId: recurrenceId
+            }
+          });
+
+          if (reqEqs.length > 0) {
+            await tx.bookingEquipment.createMany({
+              data: reqEqs.map(eq => ({
+                bookingId: b.id,
+                equipmentId: eq.equipmentId,
+                quantidade: eq.quantidade
+              }))
+            });
+          }
+        });
+
+        criados.push(d);
+      } catch (err: any) {
+        conflitos.push({
+          data: d,
+          motivo: `Erro inesperado: ${err.message || String(err)}`
+        });
+      }
+    }
+
+    return res.json({
+      criados,
+      conflitos,
+      isRecurrent: true
+    });
+  }
+
+  // Build friendly equipment text summary
+  let equipSummaryText = equipamentos || "Sem material";
+  if (reqEqs.length > 0) {
+    const summaryParts = [];
+    for (const reqEq of reqEqs) {
+      if (reqEq.quantidade <= 0) continue;
+      const eqItem = await prisma.equipment.findUnique({ where: { id: reqEq.equipmentId } });
+      if (eqItem) {
+        summaryParts.push(`${eqItem.nome} (${reqEq.quantidade}x)`);
+      }
+    }
+    if (summaryParts.length > 0) {
+      equipSummaryText = summaryParts.join(", ");
+    }
+  }
+
   try {
-    // 1. Room Overlap Check
     if (situacao === "Confirmado") {
       const startMin = parseTimeToMinutes(horaInicial);
       const endMin = parseTimeToMinutes(horaFinal);
 
+      // 1. Room Overlap Check
       const overlappingBookings = await prisma.booking.findMany({
         where: { sala, data, situacao: "Confirmado" }
       });
@@ -721,22 +786,6 @@ app.post("/api/bookings", authenticate, async (req: any, res) => {
           equipmentError: true,
           error: eqConflict.error
         });
-      }
-    }
-
-    // Build friendly equipment text summary for compatibility with original elements
-    let equipSummaryText = equipamentos || "Sem material";
-    if (reqEqs.length > 0) {
-      const summaryParts = [];
-      for (const reqEq of reqEqs) {
-        if (reqEq.quantidade <= 0) continue;
-        const eqItem = await prisma.equipment.findUnique({ where: { id: reqEq.equipmentId } });
-        if (eqItem) {
-          summaryParts.push(`${eqItem.nome} (${reqEq.quantidade}x)`);
-        }
-      }
-      if (summaryParts.length > 0) {
-        equipSummaryText = summaryParts.join(", ");
       }
     }
 
