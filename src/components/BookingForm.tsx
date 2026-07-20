@@ -326,9 +326,21 @@ export default function BookingForm({
                   activeRooms.map((room) => {
                     const rName = room.name || room.nome;
                     const rCap = room.capacity || room.capacidade;
+                    // Get emoji based on room color
+                    const corBg = room.corBg || "indigo";
+                    let emoji = "🔵";
+                    if (corBg === "emerald" || corBg.includes("verde")) emoji = "🟢";
+                    else if (corBg === "sky" || corBg.includes("azul")) emoji = "🔵";
+                    else if (corBg === "amber" || corBg.includes("laranja") || corBg.includes("amarelo")) emoji = "🟠";
+                    else if (corBg === "purple" || corBg.includes("roxo")) emoji = "🟣";
+                    else if (corBg === "rose" || corBg.includes("rosa") || corBg.includes("vermelho")) emoji = "🔴";
+                    else if (corBg === "indigo") emoji = "🔵";
+                    else if (corBg === "violet" || corBg.includes("violeta")) emoji = "🟣";
+                    else if (corBg === "teal" || corBg.includes("ciano")) emoji = "🔷";
+
                     return (
                       <option key={room.id} value={rName}>
-                        {rName} (Até {rCap} pessoas)
+                        {emoji} {rName} (Até {rCap} pessoas)
                       </option>
                     );
                   })

@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { Booking, SystemUser } from "../types";
 import { ChevronLeft, ChevronRight, Calendar, Plus, Clock, User, ClipboardList, Users, Lock } from "lucide-react";
+import { getRoomColorInfo } from "../utils/colors";
 
 interface BookingCalendarProps {
   bookings: Booking[];
   currentUser: SystemUser;
+  rooms: any[];
   onAddOnDate: (dateStr: string) => void;
   onEdit: (booking: Booking) => void;
 }
 
-export default function BookingCalendar({ bookings, currentUser, onAddOnDate, onEdit }: BookingCalendarProps) {
+export default function BookingCalendar({ bookings, currentUser, rooms, onAddOnDate, onEdit }: BookingCalendarProps) {
   // Permission helper
   const isEditable = (b: Booking) => {
     if (currentUser.role === "Administrador") return true;
@@ -82,18 +84,13 @@ export default function BookingCalendar({ bookings, currentUser, onAddOnDate, on
 
   const calendarDays = getDaysInMonth();
 
-  // Highlight color codes for rooms
+  // Highlight color codes for rooms dynamically resolved
   const getRoomColorBadge = (roomName: string) => {
-    if (roomName.includes("School") || roomName.includes("Escola de Saúde")) {
-      return "bg-amber-100 border-l-[3px] border-amber-500 text-amber-900";
-    }
-    if (roomName.includes("reuniões 2")) {
-      return "bg-emerald-100 border-l-[3px] border-emerald-600 text-emerald-950";
-    }
-    if (roomName.includes("Conselho")) {
-      return "bg-sky-100 border-l-[3px] border-sky-500 text-sky-950";
-    }
-    return "bg-purple-100 border-l-[3px] border-purple-500 text-purple-950";
+    const matchedRoom = rooms?.find(
+      (r) => (r.name || r.nome)?.toLowerCase().trim() === roomName.toLowerCase().trim()
+    );
+    const colorInfo = getRoomColorInfo(matchedRoom?.corBg, roomName);
+    return colorInfo.badge;
   };
 
   // Group Bookings by DateStr for quick access
@@ -275,19 +272,19 @@ export default function BookingCalendar({ bookings, currentUser, onAddOnDate, on
         <div className="flex-1 overflow-y-auto space-y-3 pr-1 max-h-[500px]">
           {selectedDayBookings.length > 0 ? (
             selectedDayBookings.map((ev) => {
-              const isSchool = ev.sala.includes("Escola de s") || ev.sala.includes("Escola de Saúde");
+              const matchedRoom = rooms?.find(
+                (r) => (r.name || r.nome)?.toLowerCase().trim() === ev.sala.toLowerCase().trim()
+              );
+              const colorInfo = getRoomColorInfo(matchedRoom?.corBg, ev.sala);
               return (
                 <div 
                   key={ev.id} 
                   onClick={() => onEdit(ev)}
-                  className={`p-3 rounded-xl border border-slate-100/80 hover:shadow-xs transition-shadow cursor-pointer relative group ${
-                    isSchool ? "bg-amber-50/40" : "bg-emerald-50/40"
-                  }`}
+                  className="p-3 rounded-xl border border-slate-100/80 hover:shadow-xs transition-shadow cursor-pointer relative group"
+                  style={{ backgroundColor: `${colorInfo.dot}09`, borderLeft: `4px solid ${colorInfo.dot}` }}
                 >
                   <div className="flex justify-between items-start mb-1.5">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${
-                      isSchool ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
-                    }`}>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${colorInfo.text}`}>
                       {ev.sala}
                     </span>
                     <div className="flex items-center gap-1 shrink-0">
@@ -351,18 +348,20 @@ export default function BookingCalendar({ bookings, currentUser, onAddOnDate, on
         {/* Legend */}
         <div className="pt-3 border-t border-slate-100 mt-4 text-[10px] space-y-1.5 text-slate-400 font-medium">
           <p className="font-bold uppercase tracking-wider text-slate-500 text-[9px] mb-1 text-left">Suas Salas</p>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 bg-amber-400 rounded-xs"></span>
-            <span>Sala (Escola de Saúde)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 bg-[#1E7145] rounded-xs"></span>
-            <span>Sala de reuniões 2</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 bg-sky-500 rounded-xs"></span>
-            <span>Outras Salas</span>
-          </div>
+          {rooms && rooms.length > 0 ? (
+            rooms.map((room) => {
+              const name = room.name || room.nome || "";
+              const colorInfo = getRoomColorInfo(room.corBg, name);
+              return (
+                <div key={room.id} className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-xs shrink-0" style={{ backgroundColor: colorInfo.dot }}></span>
+                  <span className="text-slate-600 font-medium">{name}</span>
+                </div>
+              );
+            })
+          ) : (
+            <div className="text-[9px] text-slate-400">Nenhuma sala cadastrada</div>
+          )}
         </div>
 
       </div>

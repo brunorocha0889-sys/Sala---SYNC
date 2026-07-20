@@ -57,37 +57,54 @@ const requireAdmin: express.RequestHandler = (req: any, res, next) => {
   });
 };
 
+let isAutoFinalizing = false;
+let lastFinalizedTime = 0;
+
 // Auto-finalize bookings that are past their scheduled end times in the database
 async function runAutoFinalizer() {
-  const now = new Date();
+  const nowMs = Date.now();
+  if (isAutoFinalizing || nowMs - lastFinalizedTime < 30000) {
+    return;
+  }
+  
+  isAutoFinalizing = true;
   try {
-    const activeBookings = await prisma.booking.findMany({
-      where: { situacao: "Confirmado" }
-    });
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    const todayStr = `${year}-${month}-${day}`;
     
-    let updatedCount = 0;
-    for (const b of activeBookings) {
-      const timeStr = b.horaFinal || b.horaInicial;
-      if (!b.data || !timeStr) continue;
-      
-      const [year, month, day] = b.data.split("-").map(Number);
-      const [hours, minutes] = timeStr.split(":").map(Number);
-      
-      const bookingEnd = new Date(year, month - 1, day, hours, minutes, 0, 0);
-      
-      if (now > bookingEnd) {
-        await prisma.booking.update({
-          where: { id: b.id },
-          data: { situacao: "Finalizado" }
-        });
-        updatedCount++;
+    const currentHour = String(now.getHours()).padStart(2, "0");
+    const currentMinute = String(now.getMinutes()).padStart(2, "0");
+    const currentTimeStr = `${currentHour}:${currentMinute}`;
+
+    const result = await prisma.booking.updateMany({
+      where: {
+        situacao: "Confirmado",
+        OR: [
+          {
+            data: { lt: todayStr }
+          },
+          {
+            data: { equals: todayStr },
+            horaFinal: { lt: currentTimeStr }
+          }
+        ]
+      },
+      data: {
+        situacao: "Finalizado"
       }
+    });
+
+    if (result.count > 0) {
+      console.log(`[Auto-Finalizador] ${result.count} reserva(s) finalizada(s) automaticamente.`);
     }
-    if (updatedCount > 0) {
-      console.log(`[Auto-Finalizador] Reserva(s) finalizada(s) automaticamente: ${updatedCount}`);
-    }
+    lastFinalizedTime = Date.now();
   } catch (err) {
     console.error("Erro no Auto-Finalizador de reservas:", err);
+  } finally {
+    isAutoFinalizing = false;
   }
 }
 

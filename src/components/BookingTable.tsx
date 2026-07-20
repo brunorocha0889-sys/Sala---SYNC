@@ -5,6 +5,7 @@ import {
   Search, Filter, Calendar, Users, FileText, CheckCircle, Clock, Trash2, Edit2, 
   ChevronUp, ChevronDown, PlusCircle, Ban, RefreshCw, Layers, SlidersHorizontal, EyeOff, Copy, Lock
 } from "lucide-react";
+import { getRoomColorInfo } from "../utils/colors";
 
 interface BookingTableProps {
   bookings: Booking[];
@@ -78,16 +79,11 @@ export default function BookingTable({
 
   // Get Room style matching spreadsheet
   const getRoomStyle = (roomName: string) => {
-    if (roomName.includes("Escola de s") || roomName.includes("Escola de Saúde")) {
-      return "bg-amber-100/80 text-amber-900 border border-amber-200 font-medium px-2.5 py-1 rounded-sm text-xs inline-flex items-center gap-1.5";
-    }
-    if (roomName.includes("reuniões 2")) {
-      return "bg-[#1E7145] text-white font-medium px-2.5 py-1 rounded-sm text-xs inline-flex items-center gap-1.5";
-    }
-    if (roomName.includes("Conselho")) {
-      return "bg-sky-100 text-sky-900 border border-sky-300 font-medium px-2.5 py-1 rounded-sm text-xs inline-flex items-center gap-1.5";
-    }
-    return "bg-purple-100 text-purple-900 border border-purple-300 font-medium px-2.5 py-1 rounded-sm text-xs inline-flex items-center gap-1.5";
+    const matchedRoom = rooms?.find(
+      (r) => (r.name || r.nome)?.toLowerCase().trim() === roomName.toLowerCase().trim()
+    );
+    const colorInfo = getRoomColorInfo(matchedRoom?.corBg, roomName);
+    return `${colorInfo.text} font-semibold px-2.5 py-1 rounded-md text-xs inline-flex items-center gap-1.5 border border-slate-100`;
   };
 
   // Get Equipment style matching spreadsheet

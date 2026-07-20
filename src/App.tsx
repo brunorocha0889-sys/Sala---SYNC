@@ -616,10 +616,33 @@ export default function App() {
 
   const currentConflicts = getSimultaneousConflictsCount();
 
-  // Get next 3 upcoming reservations sorted by date (excluding Canceled)
+  // Get next 3 upcoming reservations sorted by date and time (excluding Canceled and past bookings)
   const nextReservations = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    const todayStr = `${year}-${month}-${day}`;
+    
+    const currentHour = String(now.getHours()).padStart(2, "0");
+    const currentMinute = String(now.getMinutes()).padStart(2, "0");
+    const currentTimeStr = `${currentHour}:${currentMinute}`;
+
     return bookings
-      .filter((b) => b.situacao !== "Cancelado")
+      .filter((b) => {
+        if (b.situacao === "Cancelado") return false;
+        
+        // If the booking date is in the future
+        if (b.data > todayStr) return true;
+        
+        // If the booking is today, check if it has not ended yet
+        if (b.data === todayStr) {
+          const endTime = b.horaFinal || b.horaInicial;
+          return endTime >= currentTimeStr;
+        }
+        
+        return false;
+      })
       .sort((a, b) => a.data.localeCompare(b.data) || a.horaInicial.localeCompare(b.horaInicial))
       .slice(0, 3);
   }, [bookings]);
@@ -892,6 +915,7 @@ export default function App() {
               <BookingCalendar
                 bookings={bookings}
                 currentUser={currentUser}
+                rooms={rooms}
                 onAddOnDate={handleAddOnDate}
                 onEdit={handleEditClick}
               />

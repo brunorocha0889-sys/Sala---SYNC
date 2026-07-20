@@ -4,6 +4,7 @@ import {
   Users, UserPlus, Shield, Mail, Briefcase, Trash2, Edit2, CheckCircle2, 
   Lock, AlertTriangle, Key, ArrowRight, UserCheck, Bell, Info, Send, Layers, Settings, ClipboardList, MapPin
 } from "lucide-react";
+import { ROOM_COLORS_MAP, getRoomColorInfo } from "../utils/colors";
 
 interface UserManagementProps {
   users: SystemUser[];
@@ -60,6 +61,7 @@ export default function UserManagement({
   const [roomLocation, setRoomLocation] = useState("");
   const [roomDescription, setRoomDescription] = useState("");
   const [roomStatus, setRoomStatus] = useState<"Ativa" | "Inativa">("Ativa");
+  const [roomCor, setRoomCor] = useState("indigo");
 
   // Sub-tabs in administration section: "users" | "sectors" | "equipments" | "rooms"
   const [adminSubTab, setAdminSubTab] = useState<"users" | "sectors" | "equipments" | "rooms">("rooms");
@@ -274,6 +276,7 @@ export default function UserManagement({
     setRoomLocation("");
     setRoomDescription("");
     setRoomStatus("Ativa");
+    setRoomCor("indigo");
   };
 
   const handleStartEditRoom = (room: any) => {
@@ -283,6 +286,23 @@ export default function UserManagement({
     setRoomLocation(room.location || "");
     setRoomDescription(room.description || "");
     setRoomStatus((room.status === "Inativa" || room.status === "inativo") ? "Inativa" : "Ativa");
+    
+    // Parse corBg to find matched color or default to indigo
+    const bg = room.corBg || "indigo";
+    if (ROOM_COLORS_MAP[bg]) {
+      setRoomCor(bg);
+    } else {
+      // Compatibility fallback
+      const lower = bg.toLowerCase();
+      if (lower.includes("emerald") || lower.includes("verde") || lower.includes("green")) setRoomCor("emerald");
+      else if (lower.includes("sky") || lower.includes("celeste") || lower.includes("azul")) setRoomCor("sky");
+      else if (lower.includes("amber") || lower.includes("laranja") || lower.includes("amarelo")) setRoomCor("amber");
+      else if (lower.includes("purple") || lower.includes("roxo")) setRoomCor("purple");
+      else if (lower.includes("rose") || lower.includes("rosa")) setRoomCor("rose");
+      else if (lower.includes("violet") || lower.includes("violeta")) setRoomCor("violet");
+      else if (lower.includes("teal") || lower.includes("ciano")) setRoomCor("teal");
+      else setRoomCor("indigo");
+    }
   };
 
   const handleSaveRoom = async (e: React.FormEvent) => {
@@ -300,7 +320,9 @@ export default function UserManagement({
         capacity: Number(roomCapacity),
         location: roomLocation.trim(),
         description: roomDescription.trim(),
-        status: roomStatus
+        status: roomStatus,
+        corBg: roomCor,
+        corTexto: ROOM_COLORS_MAP[roomCor]?.dot || "#6366f1"
       };
 
       if (editingRoomId) {
@@ -814,6 +836,39 @@ export default function UserManagement({
                     </select>
                   </div>
 
+                  <div className="space-y-1 pb-1">
+                    <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Cor de Identificação</label>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {Object.entries(ROOM_COLORS_MAP).map(([key, value]) => {
+                        const isSelected = roomCor === key;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setRoomCor(key)}
+                            className={`flex flex-col items-center gap-1 p-1.5 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
+                              isSelected 
+                                ? "border-indigo-600 bg-indigo-50/50 scale-102 ring-2 ring-indigo-500/10" 
+                                : "border-slate-200 bg-white hover:bg-slate-50"
+                            }`}
+                          >
+                            <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: value.dot }}></span>
+                            <span className="capitalize text-[8px] text-slate-500 leading-none truncate w-full text-center">
+                              {key === "emerald" ? "Verde" :
+                               key === "sky" ? "Celeste" :
+                               key === "amber" ? "Laranja" :
+                               key === "purple" ? "Roxo" :
+                               key === "rose" ? "Rosa" :
+                               key === "indigo" ? "Índigo" :
+                               key === "violet" ? "Violeta" :
+                               key === "teal" ? "Ciano" : key}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <div className="flex items-center gap-2 pt-1">
                     <button
                       type="submit"
@@ -835,21 +890,27 @@ export default function UserManagement({
                   <div className="border-t border-slate-100 pt-3 mt-3">
                     <p className="text-[10px] font-black text-slate-450 uppercase tracking-widest mb-2">Salas Cadastradas</p>
                     <div className="space-y-1.5 max-h-[170px] overflow-y-auto scrollbar-thin">
-                      {rooms.map(room => (
-                        <div key={room.id} className="p-2.5 bg-slate-50 rounded-lg border border-slate-110 text-xs flex flex-col gap-1.5">
-                          <div className="flex items-start justify-between min-w-0 gap-1">
-                            <div className="min-w-0 flex-1">
-                              <span className="font-bold text-slate-800 block truncate" title={room.name || room.nome}>{room.name || room.nome}</span>
-                              <span className="text-[9px] text-slate-400 font-bold block uppercase tracking-tight truncate">Loc: {room.location || "Presencial"}</span>
+                      {rooms.map(room => {
+                        const roomNameString = room.name || room.nome || "";
+                        const colorInfo = getRoomColorInfo(room.corBg, roomNameString);
+                        return (
+                          <div key={room.id} className="p-2.5 bg-slate-50 rounded-lg border border-slate-110 text-xs flex flex-col gap-1.5">
+                            <div className="flex items-start justify-between min-w-0 gap-1">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorInfo.dot }}></span>
+                                  <span className="font-bold text-slate-800 truncate" title={roomNameString}>{roomNameString}</span>
+                                </div>
+                                <span className="text-[9px] text-slate-400 font-bold block uppercase tracking-tight truncate mt-0.5 pl-4">Loc: {room.location || "Presencial"}</span>
+                              </div>
+                              <span className="font-mono bg-indigo-50 text-indigo-850 text-[10px] font-extrabold px-1.5 py-0.5 rounded shrink-0">
+                                Cap: {room.capacity || room.capacidade}
+                              </span>
                             </div>
-                            <span className="font-mono bg-indigo-50 text-indigo-850 text-[10px] font-extrabold px-1.5 py-0.5 rounded shrink-0">
-                              Cap: {room.capacity || room.capacidade}
-                            </span>
-                          </div>
-                          
-                          {room.description && (
-                            <p className="text-[9px] text-slate-500 leading-tight italic line-clamp-1">{room.description}</p>
-                          )}
+                            
+                            {room.description && (
+                              <p className="text-[9px] text-slate-500 leading-tight italic line-clamp-1 pl-4">{room.description}</p>
+                            )}
 
                           <div className="flex items-center justify-between pt-1 border-t border-slate-100 mt-1">
                             <button
@@ -877,7 +938,8 @@ export default function UserManagement({
                             </div>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </form>
