@@ -24,8 +24,18 @@ import {
   Download,
   ClipboardList,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Bell,
+  BellRing,
+  BellOff
 } from "lucide-react";
+import {
+  isNotificationSupported,
+  requestBrowserPermission,
+  getNotificationPermissionState,
+  sendBrowserNotification,
+  getBookingStartAndDiff
+} from "./utils/notifications";
 
 function parseTimeToMinutes(tStr: string): number {
   if (!tStr) return 0;
@@ -99,6 +109,19 @@ export default function App() {
 
   // Toast notifications state
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Notification permission state
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>("default");
+
+  // Track already notified booking IDs to prevent duplicate alerts
+  const [notifiedBookings, setNotifiedBookings] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("notified_bookings");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
 
   const addToast = (
     type: "success" | "error" | "warning" | "info", 
@@ -261,6 +284,130 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, [isLoggedIn]);
+
+  // Initialize notification permission on mount
+  useEffect(() => {
+    if (isNotificationSupported()) {
+      setNotificationPermission(getNotificationPermissionState());
+    }
+  }, []);
+
+  // Request notification permission and show toast feedback
+  const handleRequestNotificationPermission = async () => {
+    if (!isNotificationSupported()) {
+      addToast(
+        "warning",
+        "Não Suportado",
+        "Este navegador não possui suporte para notificações push nativas."
+      );
+      return;
+    }
+
+    const res = await requestBrowserPermission();
+    setNotificationPermission(res);
+    if (res === "granted") {
+      addToast(
+        "success",
+        "Notificações Ativadas",
+        "Você receberá alertas do navegador 10 minutos antes do início de reuniões confirmadas."
+      );
+      sendBrowserNotification("SALA-SYNC: Notificações Ativas!", {
+        body: "Tudo pronto! Você receberá alertas 10 minutos antes das reuniões.",
+      });
+    } else if (res === "denied") {
+      addToast(
+        "error",
+        "Notificações Bloqueadas",
+        "A permissão foi negada. Ative as notificações nas configurações do seu navegador para receber alertas."
+      );
+    }
+  };
+
+  // Notification check for upcoming meetings (10 minutes before start)
+  useEffect(() => {
+    if (!isLoggedIn || bookings.length === 0) return;
+
+    const checkUpcomingMeetings = () => {
+      const now = new Date();
+      let updatedNotified = [...notifiedBookings];
+      let hasNewNotification = false;
+
+      // Filter confirmed bookings starting today
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      const todayStr = `${year}-${month}-${day}`;
+
+      const confirmedToday = bookings.filter(
+        (b) => b.situacao === "Confirmado" && b.data === todayStr
+      );
+
+      confirmedToday.forEach((b) => {
+        if (updatedNotified.includes(b.id)) return;
+
+        const { diffMin } = getBookingStartAndDiff(b);
+
+        // Alert user if the meeting starts in 10 minutes or less (and is in the future)
+        if (diffMin > 0 && diffMin <= 10) {
+          const minutesLeft = Math.ceil(diffMin);
+          const minutesText = minutesLeft === 1 ? "1 minuto" : `${minutesLeft} minutos`;
+          
+          const title = `Reunião em Breve: ${b.sala}`;
+          const body = `Sua reunião "${b.motivo}" começa em ${minutesText} (às ${b.horaInicial}).\nResponsável: ${b.responsavel}`;
+
+          // Try to show browser native notification
+          let shownNatively = false;
+          if (getNotificationPermissionState() === "granted") {
+            const notif = sendBrowserNotification(title, { body });
+            if (notif) {
+              shownNatively = true;
+            }
+          }
+
+          // Always fallback/also display a gorgeous in-app Toast notification!
+          addToast(
+            "info",
+            title,
+            body,
+            8000 // Display for 8 seconds so they don't miss it
+          );
+
+          updatedNotified.push(b.id);
+          hasNewNotification = true;
+        }
+      });
+
+      if (hasNewNotification) {
+        setNotifiedBookings(updatedNotified);
+        try {
+          localStorage.setItem("notified_bookings", JSON.stringify(updatedNotified));
+        } catch (e) {}
+      }
+    };
+
+    // Run check immediately
+    checkUpcomingMeetings();
+
+    // Check every 20 seconds
+    const interval = setInterval(checkUpcomingMeetings, 20000);
+
+    return () => clearInterval(interval);
+  }, [isLoggedIn, bookings, notifiedBookings]);
+
+  // Cleanup old notified booking IDs that are no longer active
+  useEffect(() => {
+    if (bookings.length === 0 || notifiedBookings.length === 0) return;
+
+    const activeIds = new Set(bookings.map((b) => b.id));
+    const cleaned = notifiedBookings.filter((id) => activeIds.has(id));
+
+    if (cleaned.length !== notifiedBookings.length) {
+      setNotifiedBookings(cleaned);
+      try {
+        localStorage.setItem("notified_bookings", JSON.stringify(cleaned));
+      } catch (e) {}
+    }
+  }, [bookings]);
 
   // Safe redirect if regular user attempts to open Users tab
   useEffect(() => {
@@ -699,6 +846,32 @@ export default function App() {
             <div className="w-10 h-10 rounded-xl bg-violet-700 text-white flex items-center justify-center font-bold text-xs shadow-sm shrink-0 uppercase" title={currentUser.email}>
               {currentUser.avatarUrl || currentUser.nome.charAt(0)}
             </div>
+            <button
+              onClick={handleRequestNotificationPermission}
+              className={`p-2 rounded-xl transition-all hover:scale-110 active:scale-95 duration-200 shrink-0 cursor-pointer ${
+                notificationPermission === "granted"
+                  ? "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+                  : notificationPermission === "denied"
+                  ? "text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                  : "text-slate-400 hover:text-indigo-650 hover:bg-slate-50 dark:hover:bg-slate-800 dark:hover:text-indigo-400"
+              }`}
+              title={
+                notificationPermission === "granted"
+                  ? "Notificações do Navegador Ativas (Alertas 10min antes)"
+                  : notificationPermission === "denied"
+                  ? "Notificações do Navegador Bloqueadas (Ative nas configurações)"
+                  : "Ativar Notificações do Navegador (Alertas 10min antes)"
+              }
+              aria-label="Configurar Notificações"
+            >
+              {notificationPermission === "granted" ? (
+                <BellRing className="w-4 h-4" />
+              ) : notificationPermission === "denied" ? (
+                <BellOff className="w-4 h-4" />
+              ) : (
+                <Bell className="w-4 h-4" />
+              )}
+            </button>
             <button
               onClick={() => setTheme(theme === "light" ? "dark" : "light")}
               className="p-2 text-slate-400 hover:text-indigo-650 hover:bg-slate-50 dark:hover:bg-slate-800 dark:hover:text-indigo-400 rounded-xl transition-all shrink-0 cursor-pointer"

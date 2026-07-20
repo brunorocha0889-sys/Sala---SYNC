@@ -289,7 +289,7 @@ export default function UserManagement({
     
     // Parse corBg to find matched color or default to indigo
     const bg = room.corBg || "indigo";
-    if (ROOM_COLORS_MAP[bg]) {
+    if (ROOM_COLORS_MAP[bg] || bg.startsWith("#") || /^[0-9A-F]{6}$/i.test(bg)) {
       setRoomCor(bg);
     } else {
       // Compatibility fallback
@@ -322,7 +322,7 @@ export default function UserManagement({
         description: roomDescription.trim(),
         status: roomStatus,
         corBg: roomCor,
-        corTexto: ROOM_COLORS_MAP[roomCor]?.dot || "#6366f1"
+        corTexto: ROOM_COLORS_MAP[roomCor]?.dot || roomCor || "#6366f1"
       };
 
       if (editingRoomId) {
@@ -836,7 +836,7 @@ export default function UserManagement({
                     </select>
                   </div>
 
-                  <div className="space-y-1 pb-1">
+                  <div className="space-y-3 pb-2 pt-1 border-t border-slate-100 mt-2">
                     <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Cor de Identificação</label>
                     <div className="grid grid-cols-4 gap-1.5">
                       {Object.entries(ROOM_COLORS_MAP).map(([key, value]) => {
@@ -852,7 +852,7 @@ export default function UserManagement({
                                 : "border-slate-200 bg-white hover:bg-slate-50"
                             }`}
                           >
-                            <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: value.dot }}></span>
+                            <span className="w-3.5 h-3.5 rounded-full border border-slate-200/50" style={{ backgroundColor: value.dot }}></span>
                             <span className="capitalize text-[8px] text-slate-500 leading-none truncate w-full text-center">
                               {key === "emerald" ? "Verde" :
                                key === "sky" ? "Celeste" :
@@ -861,11 +861,48 @@ export default function UserManagement({
                                key === "rose" ? "Rosa" :
                                key === "indigo" ? "Índigo" :
                                key === "violet" ? "Violeta" :
-                               key === "teal" ? "Ciano" : key}
+                               key === "teal" ? "Ciano" :
+                               key === "red" ? "Vermelho" :
+                               key === "orange" ? "Laranja Escuro" :
+                               key === "fuchsia" ? "Fúcsia" :
+                               key === "slate" ? "Cinza" : key}
                             </span>
                           </button>
                         );
                       })}
+                    </div>
+
+                    {/* Custom Hex Color Picker */}
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center justify-between gap-3 mt-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          id="customColorPicker"
+                          value={roomCor.startsWith("#") ? roomCor : (ROOM_COLORS_MAP[roomCor]?.dot || "#6366f1")}
+                          onChange={(e) => setRoomCor(e.target.value)}
+                          className="w-8 h-8 rounded-lg cursor-pointer border border-slate-300 p-0 overflow-hidden bg-transparent"
+                          title="Selecione um código de cor personalizado"
+                        />
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-700 leading-none">Cor Personalizada</p>
+                          <p className="text-[8px] text-slate-400 mt-0.5">Use o seletor ou digite o código HEX</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 max-w-[110px]">
+                        <span className="text-[10px] text-slate-400 font-bold">#</span>
+                        <input
+                          type="text"
+                          value={roomCor.startsWith("#") ? roomCor.replace("#", "") : (ROOM_COLORS_MAP[roomCor]?.dot || "#6366f1").replace("#", "")}
+                          onChange={(e) => {
+                            let val = e.target.value;
+                            if (val.startsWith("#")) val = val.substring(1);
+                            val = val.replace(/[^0-9A-Fa-f]/g, "").substring(0, 6);
+                            setRoomCor(`#${val}`);
+                          }}
+                          className="w-full text-[10px] font-mono font-bold text-slate-800 uppercase focus:outline-none border-0 p-0"
+                          placeholder="6366F1"
+                        />
+                      </div>
                     </div>
                   </div>
 

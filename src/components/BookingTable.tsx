@@ -469,9 +469,26 @@ export default function BookingTable({
 
                     {/* Sala Badged */}
                     <td className="py-3 px-3">
-                      <span className={getRoomStyle(b.sala)}>
-                        {b.sala}
-                      </span>
+                      {(() => {
+                        const matchedRoom = rooms?.find(
+                          (r) => (r.name || r.nome)?.toLowerCase().trim() === b.sala.toLowerCase().trim()
+                        );
+                        const colorInfo = getRoomColorInfo(matchedRoom?.corBg, b.sala);
+                        return (
+                          <span 
+                            className="font-bold px-2.5 py-1 rounded-md text-xs inline-flex items-center gap-1.5 border"
+                            style={{
+                              backgroundColor: `${colorInfo.dot}14`,
+                              borderColor: `${colorInfo.dot}25`,
+                              color: colorInfo.dot,
+                              borderLeft: `3.5px solid ${colorInfo.dot}`
+                            }}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: colorInfo.dot }}></span>
+                            {b.sala}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     {/* Tempo de Uso */}

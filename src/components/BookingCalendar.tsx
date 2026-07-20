@@ -223,19 +223,31 @@ export default function BookingCalendar({ bookings, currentUser, rooms, onAddOnD
 
                     {/* Events list mini container */}
                     <div className="flex-1 mt-1 space-y-1 overflow-y-auto max-h-[60px] sm:max-h-[80px] scrollbar-thin scrollbar-thumb-slate-300">
-                      {dayEvents.map((ev) => (
-                        <div
-                          key={ev.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEdit(ev);
-                          }}
-                          className={`text-[9px] sm:text-[10px] leading-tight py-0.5 px-1 rounded truncate font-medium transition-transform hover:scale-98 ${getRoomColorBadge(ev.sala)}`}
-                          title={`${ev.horaInicial} - ${ev.sala} (${ev.responsavel})`}
-                        >
-                          <strong>{ev.horaInicial}</strong> {ev.recorrenceId ? "🔁 " : ""}{ev.responsavel}
-                        </div>
-                      ))}
+                      {dayEvents.map((ev) => {
+                        const matchedRoom = rooms?.find(
+                          (r) => (r.name || r.nome)?.toLowerCase().trim() === ev.sala.toLowerCase().trim()
+                        );
+                        const colorInfo = getRoomColorInfo(matchedRoom?.corBg, ev.sala);
+                        return (
+                          <div
+                            key={ev.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEdit(ev);
+                            }}
+                            className="text-[9px] sm:text-[10px] leading-tight py-0.5 px-1.5 rounded-md truncate font-semibold transition-transform hover:scale-98 border-l-2 text-left"
+                            style={{
+                              backgroundColor: `${colorInfo.dot}14`,
+                              borderLeftColor: colorInfo.dot,
+                              color: colorInfo.dot,
+                              filter: "brightness(0.92)"
+                            }}
+                            title={`${ev.horaInicial} - ${ev.sala} (${ev.responsavel})`}
+                          >
+                            <strong>{ev.horaInicial}</strong> {ev.recorrenceId ? "🔁 " : ""}{ev.responsavel}
+                          </div>
+                        );
+                      })}
                     </div>
                   </>
                 ) : null}
@@ -284,7 +296,14 @@ export default function BookingCalendar({ bookings, currentUser, rooms, onAddOnD
                   style={{ backgroundColor: `${colorInfo.dot}09`, borderLeft: `4px solid ${colorInfo.dot}` }}
                 >
                   <div className="flex justify-between items-start mb-1.5">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${colorInfo.text}`}>
+                    <span 
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border"
+                      style={{
+                        backgroundColor: `${colorInfo.dot}14`,
+                        borderColor: `${colorInfo.dot}25`,
+                        color: colorInfo.dot
+                      }}
+                    >
                       {ev.sala}
                     </span>
                     <div className="flex items-center gap-1 shrink-0">

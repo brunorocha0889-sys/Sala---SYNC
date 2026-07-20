@@ -1,6 +1,7 @@
 import { Booking } from "../types";
 import { EQUIPAMENTOS_PREDEFINIDOS } from "../data";
 import { Calendar, CheckCircle, Clock, BarChart3, ShieldAlert, Cpu, Tv, Wifi } from "lucide-react";
+import { getRoomColorInfo } from "../utils/colors";
 
 interface BookingStatsProps {
   bookings: Booking[];
@@ -135,11 +136,15 @@ export default function BookingStats({ bookings, rooms = [] }: BookingStatsProps
             const predef = resolvedRooms.find((s) => (s.name || s.nome) === roomStat.nome);
             const cap = predef?.capacity || predef?.capacidade || roomStat.capacity || 10;
             const percentage = totalActive > 0 ? (roomStat.count / totalActive) * 100 : 0;
+            const colorInfo = getRoomColorInfo(predef?.corBg, roomStat.nome);
 
             return (
               <div key={roomStat.nome} className="p-4 rounded-2xl border border-slate-100 bg-slate-50/40 hover:bg-slate-55 transition-colors">
                 <div className="flex justify-between items-center mb-2 text-xs font-bold">
-                  <span className="text-slate-700 truncate max-w-xs">{roomStat.nome}</span>
+                  <span className="text-slate-700 truncate max-w-xs flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: colorInfo.dot }}></span>
+                    {roomStat.nome}
+                  </span>
                   <span className="text-slate-500 font-bold bg-white px-2 py-0.5 rounded border border-slate-200">
                     {roomStat.count} {roomStat.count === 1 ? 'reserva' : 'reservas'}
                   </span>
@@ -148,8 +153,11 @@ export default function BookingStats({ bookings, rooms = [] }: BookingStatsProps
                 {/* Progress bar */}
                 <div className="w-full bg-slate-200/80 rounded-full h-2">
                   <div
-                    className="bg-indigo-600 h-2 rounded-full transition-all duration-700"
-                    style={{ width: `${Math.min(100, Math.max(4, percentage))}%` }}
+                    className="h-2 rounded-full transition-all duration-700"
+                    style={{ 
+                      width: `${Math.min(100, Math.max(4, percentage))}%`,
+                      backgroundColor: colorInfo.dot 
+                    }}
                   />
                 </div>
                 
